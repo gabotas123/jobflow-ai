@@ -1,0 +1,7 @@
+# Los archivos .bat de Windows SIEMPRE deben entregarse con CRLF (cmd.exe los
+# interpreta mal si vienen con LF: "se abre y se cierra" la ventana).
+*.bat text eol=crlf
+
+# Alineacion de finales de linea segun la plataforma del usuario
+* text=auto
+*.sh text eol=lf

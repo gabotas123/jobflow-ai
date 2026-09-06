@@ -48,7 +48,7 @@ echo.
 ".venv\Scripts\python.exe" -m jobflow
 if errorlevel 1 (
   echo.
-  echo [ERROR] La app no arranco. Copia TODO este texto y envíalo al grupo.
+  echo [ERROR] La app no arranco. Copia TODO este texto y env?alo al grupo.
   echo   Causa mas tipica: ya hay otra ventana de JobFlow abierta.
 )
 pause
