@@ -1,5 +1,41 @@
 # JobFlow AI · Copiloto IA de Búsqueda Laboral
 
+> 🔗 **Colaboración con Git/GitHub** — abajo tienes cómo compartir el proyecto
+> con un amigo y avanzar juntos (no envíes ZIPs).
+
+## 🤝 Colaboración (Git + GitHub)
+
+**Publicar el proyecto (una sola vez):** doble clic en **`Publicar_GitHub.bat`**
+(crea un repositorio **privado** en tu cuenta y sube todo). Te pedirá iniciar
+sesión en GitHub por el navegador la primera vez.
+
+**Invitar a tu amigo (una vez publicada):**
+```
+gh repo edit jobflow-ai --add-collaborator <usuario_github_del_amigo> --permission push
+```
+Le envías el enlace: `https://github.com/<tu-usuario>/jobflow-ai`
+
+**Tu amigo, para empezar:**
+```bash
+git clone https://github.com/<tu-usuario>/jobflow-ai
+cd jobflow-ai
+# Windows: doble clic en Abrir_JobFlow.bat (instala el entorno solo)
+```
+
+**Flujo diario (ambos):**
+```bash
+git pull                      # traer lo del otro
+git checkout -b feature/nombre   # rama para una tarea
+git add . && git commit -m "describe el cambio"
+git push origin feature/nombre
+```
+En GitHub se abre un **Pull Request** para revisar y fusionar a `main`.
+
+**Regla de seguridad:** el `.gitignore` ya excluye `.env` (claves), `.venv/` y
+`data/*.db` (CVs y datos personales). Nunca los agregues a Git.
+
+---
+
 **Proyecto para Innova ULIMA.** Reconstrucción según el documento de profundización técnica:
 
 1. **Sistema XYZ de RRHH** — evaluación de CV con 4 componentes ponderados:
