@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JobFlow AI · Copiloto de Búsqueda Laboral</title>
+<link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <h1>JobFlow <span>AI</span></h1>
+    <small>Copiloto IA de búsqueda laboral · Proyecto Innova ULIMA</small>
+  </div>
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+    <button class="tab-btn" data-tab="perfiles">Perfiles & CV</button>
+    <button class="tab-btn" data-tab="analisis">Análisis CV</button>
+    <button class="tab-btn" data-tab="autofill">Autofill</button>
+    <button class="tab-btn" data-tab="empleos">Empleos</button>
+    <button class="tab-btn" data-tab="postulaciones">Postulaciones</button>
+    <button class="tab-btn" data-tab="correo">Correo</button>
+  </nav>
+</header>
+
+<main>
+  <!-- DASHBOARD -->
+  <section id="tab-dashboard" class="tab active">
+    <div class="hero card">
+      <span class="pill">Copiloto de IA para tu búsqueda laboral</span>
+      <h1>Tu <span class="grad">copiloto de IA</span> para todo el proceso de búsqueda de empleo</h1>
+      <p>Sube tu CV, conoce tu afinidad con las vacantes (sistema XYZ de RRHH), genera un CV optimizado,
+        autocompleta formularios en <b>Bumeran, Computrabajo y LinkedIn</b> y controla tu correo y tus postulaciones.</p>
+      <div class="hero-cta">
+        <button class="btn primary big" onclick="goTab('perfiles')">Subir mi CV — Gratis</button>
+        <button class="btn big" onclick="goTab('analisis')">Ver mi análisis de afinidad</button>
+        <button class="btn big" onclick="goTab('autofill')">Autocompletar formularios</button>
+      </div>
+      <div class="stats">
+        <div><b>30/30/25/15</b><small>Pesos del sistema XYZ</small></div>
+        <div><b>4</b><small>Componentes del scoring</small></div>
+        <div><b>3 + correo</b><small>Plataformas gestionadas</small></div>
+        <div><b>0</b><small>Datos inventados (honestidad)</small></div>
+      </div>
+      <div class="logos"><span>Bumeran</span>·<span>Computrabajo</span>·<span>LinkedIn</span>·<span>Gmail</span>·<span>PDF/DOCX</span></div>
+    </div>
+
+    <div class="card">
+      <h2>¿Cómo funciona?</h2>
+      <div class="steps3">
+        <div class="step"><b>1</b><h3>Abre el puesto objetivo</h3><p>Defines el cargo, requisitos y rango salarial, o pegas la oferta.</p></div>
+        <div class="step"><b>2</b><h3>Comprueba tu afinidad al instante</h3><p>El motor XYZ puntúa keywords, experiencia, competencias STAR y formato ATS.</p></div>
+        <div class="step"><b>3</b><h3>Genera tu CV y solicita</h3><p>Recibe el CV corregido, respuestas y el autofill de formularios. Tú apruebas antes de enviar.</p></div>
+      </div>
+    </div>
+
+    <div class="card" id="profile-card"><p>Cargando perfil…</p></div>
+    <div class="kpi-row" id="kpi-row"></div>
+    <div class="grid2">
+      <div class="card">
+        <h2>Motores del sistema</h2>
+        <div id="adapters"></div>
+      </div>
+      <div class="card">
+        <h2>Funciones principales</h2>
+        <div class="features">
+          <div class="feat">📄 <b>Optimización de CV</b><span>Correcciones aplicadas y CV descargable</span></div>
+          <div class="feat">📊 <b>Análisis de afinidad</b><span>Score XYZ + brechas priorizadas</span></div>
+          <div class="feat">⚡ <b>Autocompletado</b><span>Bumeran y Computrabajo (con aprobación)</span></div>
+          <div class="feat">💬 <b>Respuestas con IA</b><span>Banco de respuestas realistas</span></div>
+          <div class="feat">🤝 <b>Copiloto LinkedIn</b><span>Respuestas para pegar (sin bots)</span></div>
+          <div class="feat">📮 <b>Seguimiento de correo</b><span>Clasificación de solicitudes</span></div>
+          <div class="feat">🗂 <b>Tracker</b><span>Pipeline de postulaciones</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>🔗 Conexiones (linkear plataformas)</h2>
+      <p class="muted">Marca las plataformas que usas. La app adapta automáticamente el modo
+        (autofill en Bumeran/Computrabajo, copiloto en LinkedIn, búsqueda en Indeed) y el
+        conector de correo.</p>
+      <div id="connections" class="badges" style="justify-content:flex-start"><p class="muted">Cargando…</p></div>
+    </div>
+  </section>
+
+  <!-- PERFILES -->
+  <section id="tab-perfiles" class="tab">
+    <div class="card">
+      <h2>Subir CV de un candidato</h2>
+      <p class="muted">PDF, DOCX o TXT. Se parsea automáticamente (contacto, experiencia, habilidades, idiomas, formación)
+        y queda listo para el análisis XYZ, las respuestas y el autofill. Los datos que no se detecten se marcan para confirmar (nunca se inventan).</p>
+      <div class="row">
+        <label>Nombre (opcional, si el CV no lo trae)
+          <input id="upload-name" placeholder="Ej. María Pérez">
+        </label>
+        <label class="filelabel">Archivo CV
+          <input type="file" id="upload-file" accept=".pdf,.docx,.txt">
+        </label>
+        <button class="btn primary" onclick="uploadCV()">Subir y analizar CV</button>
+      </div>
+      <div id="upload-status"></div>
+    </div>
+    <div class="card">
+      <h2>Perfiles disponibles</h2>
+      <div id="profiles-list"></div>
+    </div>
+    <div id="profile-detail"></div>
+    <div id="cv-result"></div>
+  </section>
+
+  <!-- ANÁLISIS -->
+  <section id="tab-analisis" class="tab">
+    <div class="card">
+      <h2>Análisis de CV vs. puesto objetivo</h2>
+      <div class="row">
+        <label>Puesto objetivo (activo)
+          <select id="role-select"></select>
+        </label>
+        <label>Seniority
+          <select id="pt-seniority">
+            <option>asistente</option><option>analista_junior</option><option>analista</option>
+          </select>
+        </label>
+        <label>Modalidad
+          <select id="pt-modality">
+            <option>Presencial o hibrido</option><option>Presencial</option><option>Hibrido</option><option>Remoto</option>
+          </select>
+        </label>
+        <label>Rango salarial
+          <select id="pt-salario"></select>
+        </label>
+        <button class="btn primary" onclick="runAnalysis()">Analizar CV</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <label>Nuevo puesto objetivo (título)
+          <input id="pt-titulo" placeholder="Ej. Analista de Tesorería">
+        </label>
+        <label>Requisitos obligatorios (coma)
+          <input id="pt-must" value="Excel, cuentas por cobrar, cobranzas, aging, Power BI, SQL">
+        </label>
+        <label>Nice-to-have (coma)
+          <input id="pt-nice" value="SAP, facturación, Python">
+        </label>
+        <button class="btn" onclick="createPuesto()">＋ Guardar puesto (activo)</button>
+      </div>
+      <p class="muted" id="pt-info"></p>
+    </div>
+    <div id="analysis-result"></div>
+  </section>
+
+  <!-- AUTOFILL -->
+  <section id="tab-autofill" class="tab">
+    <div class="card">
+      <h2>Motor de autofill (pipeline agnóstico de plataforma)</h2>
+      <p class="muted">Detector → Mapeador semántico → Generador de respuestas → <b>Revisión humana</b> → Ejecutor.
+        La postulación <b>nunca se envía sin tu aprobación</b>. En LinkedIn solo actúa como copiloto (prohibido automatizar el envío).</p>
+      <div id="adapter-badges" class="badges"></div>
+      <button class="btn primary" onclick="runFormPipeline()">▶ Ejecutar pipeline (formulario de prueba)</button>
+    </div>
+    <div id="form-result"></div>
+  </section>
+
+  <!-- EMPLEOS -->
+  <section id="tab-empleos" class="tab">
+    <div class="card">
+      <h2>Búsqueda de empleo según el perfil analizado</h2>
+      <p class="muted">Genera la consulta a partir del perfil activo (cargo, habilidades y dominio) y busca
+        en <b>Bumeran, Computrabajo, Indeed y LinkedIn</b>. Los resultados provienen de los sitios reales.
+        Si una plataforma bloquea la captura (anti-bot/inicio de sesión), se te da el enlace directo para
+        abrirla en tu navegador — la app nunca inventa vacantes.</p>
+      <button class="btn primary" onclick="searchJobs()">🔎 Buscar empleos para este perfil</button>
+      <div id="job-status" style="margin-top:10px"></div>
+    </div>
+    <div id="job-results"></div>
+  </section>
+
+  <!-- POSTULACIONES -->
+  <section id="tab-postulaciones" class="tab">
+    <div class="card">
+      <h2>Tracker de postulaciones <span class="muted">· conectado a Empleos + correo</span></h2>
+      <table id="app-table">
+        <thead><tr><th>Vacante</th><th>Plataforma</th><th>Estado</th><th>Fecha</th><th>Correo</th><th>Resp.</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="muted">Las postulaciones creadas desde <b>Empleos</b> generan automáticamente un
+        correo de seguimiento (simulado sin SMTP) y quedan enlazadas aquí.</p>
+    </div>
+  </section>
+
+  <!-- CORREO -->
+  <section id="tab-correo" class="tab">
+    <div class="card">
+      <h2>Monitoreo de correo</h2>
+      <p class="muted">En producción: conexión OAuth2 a Gmail (scopes mínimos, nunca contraseña), clasificación con IA y
+        resolución de cuestionarios con el mismo pipeline de autofill. Aquí se muestra la bandeja simulada del MVP.</p>
+      <button class="btn" onclick="loadEmails()">Actualizar bandeja</button>
+    </div>
+    <div id="email-list"></div>
+  </section>
+</main>
+
+<footer class="footer">JobFlow AI · Documento técnico: sistema XYZ (30/30/25/15) + autofill + correo · Demo MVP sustentación</footer>
+<script src="/assets/app.js"></script>
+</body>
+</html>

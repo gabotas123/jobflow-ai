@@ -1,0 +1,23 @@
+# JobFlow AI - Dependencias (Python >= 3.10)
+
+# Web
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+
+# Datos / ORM
+sqlalchemy>=2.0
+pydantic>=2.6
+
+# Parseo de CV
+pypdf>=4.0
+python-docx>=1.1
+
+# IA / LLM (opcional; la app corre sin API key con el motor deterministico)
+openai>=1.30
+
+# Automatizacion de navegador (solo se usa en Fase de ejecucion real)
+playwright>=1.44
+
+# Utilidades
+python-dotenv>=1.0

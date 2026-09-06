@@ -1,0 +1,25 @@
+# ==== JobFlow AI — archivos que NO deben compartirse ====
+# Dependencias locales
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Datos sensibles (CVs subidos, base de datos con datos personales de candidatos)
+data/*.db
+data/*.db-journal
+data/uploads/
+data/*.pdf
+data/*.docx
+
+# Credenciales / configuración local (contiene API keys y SMTP)
+.env
+.env.local
+
+# Sistema / editores
+Thumbs.db
+Desktop.ini
+.DS_Store
+.vscode/
+.idea/
+*.log

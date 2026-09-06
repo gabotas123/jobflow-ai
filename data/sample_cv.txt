@@ -1,0 +1,35 @@
+María Fernanda Rojas Delgado
+Analista Financiera | Tesorería | Reporting
+mfernanda.rojas@gmail.com | +51 987 654 321 | Surco, Lima, Perú
+linkedin.com/in/mariafernanda-rojas
+
+RESUMEN
+Economista con experiencia en tesorería, reporting financiero y análisis de presupuestos.
+Manejo Excel avanzado, Power BI y SAP a nivel intermedio. Disponibilidad inmediata.
+
+EXPERIENCIA
+Finanzas Corporativas SAC — Analista de Tesorería — Mar. 2024 - Actualidad
+- Reduje el tiempo de cierre de tesorería en 30% mediante la automatización de conciliaciones bancarias en Excel y Power Query.
+- Elaboré reportes diarios de posición de liquidez para gerencia general.
+- Coordiné pagos con bancos y gestioné 40 cuentas bancarias corporativas.
+- Implementé un dashboard de flujo de caja en Power BI con DAX.
+
+Grupo Inversiones Beta — Asistente de Finanzas — Ene. 2023 - Feb. 2024
+- Preparé presupuestos mensuales y análisis de variaciones.
+- Consolidé información de 5 unidades de negocio.
+- Redacté informes de desempeño para comités financieros.
+
+EDUCACIÓN
+Bachiller en Economía — Universidad del Pacífico, 2022
+Diplomado en Finanzas Corporativas — PUCP, 2023
+
+HABILIDADES
+Excel avanzado, Power BI, Power Query, SAP intermedio, SQL básico, VBA, Análisis financiero, Presupuestos
+
+IDIOMAS
+Inglés avanzado — ICPNA
+Portugués básico
+
+PROYECTOS
+Dashboard de liquidez y proyección de tesorería (Power BI)
+Modelo de evaluación de proyectos de inversión (Excel + Python)
