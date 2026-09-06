@@ -49,9 +49,10 @@ pause
 exit /b 1
 
 :py_ok
-echo OK - Python listo.
-
+echo OK - Python detectado:
+%PY% --version
 echo.
+
 echo Paso 2 de 5: instalando Git (para actualizar despues)...
 where winget >nul 2>&1
 if not errorlevel 1 winget install Git.Git --accept-package-agreements --accept-source-agreements --silent
@@ -62,7 +63,26 @@ echo Paso 3 de 5: creando el entorno del proyecto (1-2 min)...
 if exist ".venv\Scripts\python.exe" goto env_ok
 %PY% -m venv .venv
 if not exist ".venv\Scripts\python.exe" goto env_error
-".venv\Scripts\python.exe" -m pip install -q --disable-pip-version-check -r requirements.txt
+echo   + asegurando pip dentro del entorno (Python 3.13/3.14 ya no lo incluye)...
+".venv\Scripts\python.exe" -m ensurepip --upgrade >nul 2>&1
+".venv\Scripts\python.exe" -m pip --version >nul 2>&1
+if errorlevel 1 (
+  echo   [ERROR] pip no esta disponible dentro del entorno. Reinstala Python
+  echo   marcando "Add python.exe to PATH" y repite.
+  pause
+  exit /b 1
+)
+echo   + instalando dependencias (esta linea puede tardar)...
+".venv\Scripts\python.exe" -m pip install -r requirements.txt > pip_install.log 2>&1
+if errorlevel 1 (
+  echo   [ERROR] No se pudieron instalar las dependencias. Causa exacta:
+  echo   --------------------------------------------------------------
+  type pip_install.log
+  echo   --------------------------------------------------------------
+  echo   Envia este texto al grupo para resolverlo.
+  pause
+  exit /b 1
+)
 goto env_ok2
 :env_error
 echo [ERROR] No se pudo crear el entorno. Repite esta ventana o

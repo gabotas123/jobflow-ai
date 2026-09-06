@@ -23,3 +23,5 @@ Desktop.ini
 .vscode/
 .idea/
 *.log
+
+pip_install.log
