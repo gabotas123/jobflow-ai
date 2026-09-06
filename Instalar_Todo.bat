@@ -1,5 +1,6 @@
 @echo off
 setlocal
+chcp 65001 >nul
 cd /d "%~dp0"
 title JobFlow AI - Instalacion automatica
 
@@ -13,9 +14,11 @@ echo   Paso 1 de 5: revisando Python...
 echo.
 
 set "PYEXE="
-if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set "PYEXE=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
-if not defined PYEXE where py >nul 2>&1 && set "PYEXE=py -3"
-if not defined PYEXE where python >nul 2>&1 && set "PYEXE=python"
+for %%P in ("%LOCALAPPDATA%\Programs\Python\Python312\python.exe") do (
+  if not defined PYEXE if exist "%%~P" ( "%%~P" --version >nul 2>&1 && set "PYEXE=%%~P" )
+)
+if not defined PYEXE ( py -3 --version >nul 2>&1 && set "PYEXE=py -3" )
+if not defined PYEXE ( python --version >nul 2>&1 && set "PYEXE=python" )
 
 if not defined PYEXE (
   echo   Python no esta instalado. LO INSTALO AHORA (3-5 minutos, espera)...
