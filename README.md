@@ -19,8 +19,13 @@ Le envías el enlace: `https://github.com/<tu-usuario>/jobflow-ai`
 ```bash
 git clone https://github.com/<tu-usuario>/jobflow-ai
 cd jobflow-ai
-# Windows: doble clic en Abrir_JobFlow.bat (instala el entorno solo)
+# Windows: doble clic en Abrir_JobFlow.bat
 ```
+`Abrir_JobFlow.bat` hace todo solo en la primera ejecución: detecta Python 3
+(avisa si falta), crea el entorno virtual, instala dependencias y descarga
+Chromium para la búsqueda de empleos; luego levanta la web en
+`http://127.0.0.1:8000/` y abre el navegador. Solo requiere **Python 3.10+**
+(`python.org`, casilla "Add python.exe to PATH").
 
 **Flujo diario (ambos):**
 ```bash
