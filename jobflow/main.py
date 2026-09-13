@@ -76,7 +76,7 @@ async def lifespan(app: FastAPI):
             worker.join(timeout=2)
 
 
-app = FastAPI(title="JobFlow AI", version="0.6.0", lifespan=lifespan)
+app = FastAPI(title="JobFlow AI", version="0.6.1", lifespan=lifespan)
 from .career import router as career_router, require_ready
 from .google_integration import router as google_router
 from .portal_accounts import router as portals_router
@@ -597,7 +597,7 @@ def api_applications(profile_id: Optional[int] = None, db: Session = Depends(get
 
 @app.get("/healthz")
 def health():
-    return {"status": "ok", "version": "0.6.0"}
+    return {"status": "ok", "version": "0.6.1"}
 
 
 @app.post("/api/jobs/extract")

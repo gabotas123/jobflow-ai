@@ -149,7 +149,7 @@ def import_job(client, pid, url, title='Analista de cobranzas'):
 
 def connect(pid, portal='bumeran'):
     db = SessionLocal()
-    db.add(portals.PortalAccount(profile_id=pid, portal=portal, encrypted=portals.cipher().encrypt(json.dumps({'cookies': []}).encode()).decode()))
+    db.add(portals.PortalAccount(profile_id=pid, portal=portal, encrypted=portals.cipher().encrypt(json.dumps({'formato': 'navegador_real', 'perfil': 'x'}).encode()).decode()))
     db.commit()
     db.close()
 
@@ -293,6 +293,42 @@ def test_executor_blocks_captcha_login_and_missing_confirmation(portal_page):
     assert out['status'] == 'intento_no_confirmado'
     closed = portal_page('<h1>Aviso finalizado</h1>')
     assert portals.apply_on_page(closed, 'bumeran', 'https://www.bumeran.com.pe/empleos/analista-1.html', planner())['reason'] == 'sin_boton'
+    blocked = portal_page('<h1>Sorry, you have been blocked</h1><p>You are unable to access bumeran.com.pe</p><button>Postularme</button>')
+    assert portals.apply_on_page(blocked, 'bumeran', 'https://www.bumeran.com.pe/empleos/analista-1.html', planner())['reason'] == 'bloqueo_portal'
+
+
+def test_session_detection_distinguishes_login_block_and_active(portal_page):
+    probe = '/postulantes/postulaciones'
+    to_login = portal_page('<p>Cargando</p><script>setTimeout(() => location.href = "/login?returnTo=/postulantes", 1200)</script>', path=probe)
+    assert portals.session_state(to_login.context, 'bumeran', wait_ms=4000) == 'sin_sesion'
+    blocked = portal_page('<h1>Sorry, you have been blocked</h1><p>You are unable to access bumeran.com.pe</p>', path=probe)
+    assert portals.session_state(blocked.context, 'bumeran', wait_ms=1500) == 'bloqueado'
+    active = portal_page('<h1>Mis postulaciones</h1><p>Analista de cobranzas · Empresa SAC · Postulado el 10/09</p>', path=probe)
+    assert portals.session_state(active.context, 'bumeran', wait_ms=1500) == 'activa'
+
+
+def test_find_browser_prefers_configured_path(monkeypatch, tmp_path):
+    exe = tmp_path / 'chrome.exe'
+    exe.write_text('')
+    monkeypatch.setenv('JOBFLOW_BROWSER_PATH', str(exe))
+    assert portals.find_browser() == str(exe)
+    monkeypatch.setenv('JOBFLOW_BROWSER_PATH', str(tmp_path / 'missing.exe'))
+    assert portals.find_browser() != str(tmp_path / 'missing.exe')
+
+
+def test_legacy_sessions_require_reconnecting(client, monkeypatch):
+    monkeypatch.delenv('RENDER', raising=False)
+    pid = ready_profile(client)
+    db = SessionLocal()
+    db.add(portals.PortalAccount(profile_id=pid, portal='computrabajo',
+                                 encrypted=portals.cipher().encrypt(json.dumps({'cookies': []}).encode()).decode()))
+    db.commit()
+    db.close()
+    status = {a['portal']: a['status'] for a in client.get(f'/api/portals/{pid}').json()['accounts']}
+    assert status['computrabajo'] == 'expired'
+    aid = import_job(client, pid, f'https://pe.computrabajo.com/ofertas-de-trabajo/oferta-legacy-{pid}', 'Asistente de cobranzas')
+    assert 'Conecta tu cuenta' in client.post(f'/api/portals/applications/{aid}/apply', json={}).json()['detail']
+    assert client.post(f'/api/portals/{pid}/computrabajo/verify').status_code == 409
 
 
 def test_worker_applies_end_to_end_with_evidence(client, monkeypatch):
@@ -304,8 +340,8 @@ def test_worker_applies_end_to_end_with_evidence(client, monkeypatch):
     run_id = client.post(f'/api/portals/applications/{aid}/apply', json={}).json()['id']
     body = JOB_PAGE.replace('EXTRA', '')
 
-    def fake_browser(state, headless, fn):
-        assert state == {'cookies': []}  # the decrypted session is what opens the portal
+    def fake_browser(profile_id, fn):
+        assert profile_id == pid  # the candidate's own browser profile opens the portal
         try:
             with sync_api.sync_playwright() as p:
                 browser = p.chromium.launch()

@@ -16,6 +16,9 @@ import json
 import os
 import random
 import re
+import shutil
+import socket
+import subprocess
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -125,7 +128,9 @@ def browser_status() -> tuple[bool, str]:
     try:
         import playwright.sync_api  # noqa: F401
     except ImportError:
-        return False, "Falta el navegador automático. Ejecuta Instalar_Todo.bat."
+        return False, "Faltan componentes de JobFlow. Ejecuta Instalar_Todo.bat."
+    if not find_browser():
+        return False, "Instala Google Chrome o Microsoft Edge: JobFlow usa tu navegador para iniciar sesión y postular."
     return True, ""
 
 
@@ -144,15 +149,131 @@ def account(db, pid, portal):
     return db.query(PortalAccount).filter_by(profile_id=pid, portal=portal).first()
 
 
+def account_ready(acc) -> bool:
+    try:
+        return json.loads(cipher().decrypt(acc.encrypted.encode())).get("formato") == "navegador_real"
+    except (InvalidToken, ValueError, AttributeError):
+        return False
+
+
 def on_login(url: str, portal: str) -> bool:
     return any(m in (url or "").lower() for m in PORTALS[portal]["login_markers"])
 
 
 # --------------------------------------------------------------------------- #
-#  Conexion de cuentas (ventana visible, inicio de sesion personal)
+#  Navegador real del candidato (Chrome/Edge) con un perfil propio de JobFlow
+# --------------------------------------------------------------------------- #
+# Los portales bloquean el Chromium de automatizacion y el modo oculto (Cloudflare
+# responde "you have been blocked" o 403). Por eso se abre el Chrome/Edge instalado
+# como un proceso normal y solo se conecta por DevTools para leer el estado.
+BLOCK_TEXT = re.compile(r"(you have been blocked|unable to access|403 forbidden|access denied|attention required|"
+                        r"just a moment|checking your browser|acceso denegado)", re.I)
+BROWSER_CANDIDATES = (
+    r"%ProgramFiles%\Google\Chrome\Application\chrome.exe",
+    r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe",
+    r"%LocalAppData%\Google\Chrome\Application\chrome.exe",
+    r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe",
+    r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe",
+)
+
+
+def find_browser() -> str:
+    custom = os.getenv("JOBFLOW_BROWSER_PATH", "")
+    for candidate in ([custom] if custom else []) + [os.path.expandvars(c) for c in BROWSER_CANDIDATES]:
+        if candidate and "%" not in candidate and Path(candidate).is_file():
+            return candidate
+    for name in ("google-chrome", "chrome", "chromium", "microsoft-edge"):
+        found = shutil.which(name)
+        if found:
+            return found
+    return ""
+
+
+def browser_profile(pid: int) -> Path:
+    path = Path(settings.data_dir).resolve() / "navegador" / f"perfil_{pid}"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+class RealBrowser:
+    """Chrome/Edge sin marcas de automatizacion, controlado por DevTools local."""
+
+    def __init__(self, playwright, pid: int, start_url: str = "about:blank"):
+        exe = find_browser()
+        if not exe:
+            raise RuntimeError("No se encontró Google Chrome ni Microsoft Edge. Instala uno de ellos para conectar tus cuentas.")
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        self.proc = subprocess.Popen(
+            [exe, f"--user-data-dir={browser_profile(pid)}", f"--remote-debugging-port={port}",
+             "--no-first-run", "--no-default-browser-check", "--disable-session-crashed-bubble",
+             "--hide-crash-restore-bubble", "--window-size=1280,900", "--new-window", start_url],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.browser, last_error = None, None
+        deadline = time.time() + 25
+        while time.time() < deadline:
+            if self.proc.poll() is not None:
+                raise RuntimeError("Ya hay una ventana de JobFlow abierta con tu perfil de navegador. Ciérrala e inténtalo otra vez.")
+            try:
+                self.browser = playwright.chromium.connect_over_cdp(f"http://127.0.0.1:{port}", timeout=5000)
+                break
+            except Exception as exc:
+                last_error = exc
+                time.sleep(0.5)
+        if not self.browser:
+            self.close()
+            raise RuntimeError("No se pudo controlar el navegador. " + str(last_error)[:150])
+        self.context = self.browser.contexts[0]
+
+    def pages(self):
+        return [pg for pg in self.context.pages if not pg.is_closed()]
+
+    def alive(self) -> bool:
+        # Chrome may hand the window to a child process, so the DevTools link is the source of truth.
+        return self.browser is not None and self.browser.is_connected()
+
+    def close(self):
+        if self.browser is not None:
+            try:
+                self.browser.new_browser_cdp_session().send("Browser.close")
+            except Exception:
+                pass
+        try:
+            self.proc.wait(10)
+        except Exception:
+            self.proc.terminate()
+
+
+def session_state(context, portal: str, wait_ms: int = 8000) -> str:
+    """Abre la zona privada del portal: 'activa', 'sin_sesion' o 'bloqueado'."""
+    probe = context.new_page()
+    try:
+        probe.goto(PORTALS[portal]["probe_url"], wait_until="domcontentloaded", timeout=30000)
+        deadline = time.time() + wait_ms / 1000
+        while time.time() < deadline:  # the login redirect is done by JavaScript after load
+            if on_login(probe.url, portal):
+                return "sin_sesion"
+            probe.wait_for_timeout(500)
+        text = _visible_text(probe)
+        if BLOCK_TEXT.search(text):
+            return "bloqueado"
+        return "activa" if len(text.strip()) > 40 and not on_login(probe.url, portal) else "sin_sesion"
+    except Exception:
+        return "sin_sesion"
+    finally:
+        try:
+            probe.close()
+        except Exception:
+            pass
+
+
+# --------------------------------------------------------------------------- #
+#  Conexion de cuentas (inicio de sesion personal en la ventana del portal)
 # --------------------------------------------------------------------------- #
 LOGINS: dict[tuple[int, str], dict] = {}
 LOGIN_LOCK = threading.Lock()
+LOGIN_ACTIVE = ("abriendo", "esperando", "verificando")
 
 
 def _set_login(key, status, message=""):
@@ -160,20 +281,14 @@ def _set_login(key, status, message=""):
         LOGINS[key] = {"status": status, "message": message, "at": time.time()}
 
 
-def _session_active(context, portal) -> bool:
-    """Abre la zona privada del portal en otra pestana y comprueba que no pida login."""
-    probe = context.new_page()
-    try:
-        probe.goto(PORTALS[portal]["probe_url"], wait_until="domcontentloaded", timeout=30000)
-        probe.wait_for_timeout(3500)
-        return not on_login(probe.url, portal)
-    except Exception:
-        return False
-    finally:
-        try:
-            probe.close()
-        except Exception:
-            pass
+def _request_login(key, action):
+    with LOGIN_LOCK:
+        if key in LOGINS:
+            LOGINS[key]["request"] = action
+
+
+def login_active(pid) -> str:
+    return next((portal for (p, portal), s in LOGINS.items() if p == pid and s["status"] in LOGIN_ACTIVE), "")
 
 
 def save_session(pid, portal, state: dict) -> None:
@@ -189,39 +304,49 @@ def save_session(pid, portal, state: dict) -> None:
 
 
 def login_worker(pid: int, portal: str) -> None:
-    key = (pid, portal)
-    cfg = PORTALS[portal]
+    key, cfg = (pid, portal), PORTALS[portal]
+    waiting = f"Inicia sesión en la ventana de {cfg['nombre']} y luego pulsa «Ya inicié sesión». JobFlow no lee tu contraseña."
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False)
-            context = browser.new_context(locale="es-PE", no_viewport=True)
-            page = context.new_page()
-            page.goto(cfg["login_url"], wait_until="domcontentloaded", timeout=60000)
-            _set_login(key, "esperando", f"Inicia sesión en la ventana de {cfg['nombre']}. JobFlow no lee tu contraseña.")
-            deadline, last_probe = time.time() + LOGIN_TIMEOUT, 0.0
-            while time.time() < deadline:
-                time.sleep(3)
-                pages = [pg for pg in context.pages if not pg.is_closed()]
-                if not browser.is_connected() or not pages:
-                    _set_login(key, "cancelada", "Se cerró la ventana antes de terminar el inicio de sesión.")
-                    return
-                left_login = any(cfg["domain"] in pg.url and not on_login(pg.url, portal) for pg in pages)
-                if not left_login or time.time() - last_probe < 20:
-                    continue
-                last_probe = time.time()
-                if _session_active(context, portal):
-                    save_session(pid, portal, context.storage_state())
-                    _set_login(key, "conectada", f"Cuenta de {cfg['nombre']} conectada.")
-                    browser.close()
-                    return
-            _set_login(key, "vencida", "Pasaron 10 minutos sin completar el inicio de sesión.")
-            browser.close()
+            real = RealBrowser(p, pid, cfg["login_url"])
+            try:
+                _set_login(key, "esperando", waiting)
+                deadline, last_probe = time.time() + LOGIN_TIMEOUT, 0.0
+                while time.time() < deadline:
+                    time.sleep(2)
+                    request = LOGINS.get(key, {}).get("request")
+                    if request == "cancel":
+                        _set_login(key, "cancelada", "Conexión cancelada.")
+                        return
+                    pages = real.pages() if real.alive() else []
+                    if not pages:
+                        _set_login(key, "cancelada", "Se cerró la ventana antes de conectar la cuenta.")
+                        return
+                    manual = request == "verify"
+                    left_login = any(cfg["domain"] in pg.url and not on_login(pg.url, portal) for pg in pages)
+                    if not manual and (not left_login or time.time() - last_probe < 20):
+                        continue
+                    last_probe = time.time()
+                    _set_login(key, "verificando", "Comprobando tu sesión…")
+                    state = session_state(real.context, portal)
+                    if state == "activa":
+                        save_session(pid, portal, {"formato": "navegador_real", "perfil": str(browser_profile(pid))})
+                        _set_login(key, "conectada", f"Cuenta de {cfg['nombre']} conectada.")
+                        return
+                    if state == "bloqueado":
+                        _set_login(key, "esperando", f"{cfg['nombre']} mostró una página de bloqueo o verificación. "
+                                                     "Complétala en la ventana si aparece y vuelve a pulsar «Ya inicié sesión».")
+                    elif manual:
+                        _set_login(key, "esperando", f"Todavía no hay una sesión iniciada en {cfg['nombre']}. "
+                                                     "Termina de ingresar en la ventana y vuelve a pulsar «Ya inicié sesión».")
+                    else:
+                        _set_login(key, "esperando", waiting)
+                _set_login(key, "vencida", "Pasaron 10 minutos sin completar el inicio de sesión.")
+            finally:
+                real.close()
     except Exception as exc:  # pragma: no cover - depende del escritorio local
-        message = str(exc)
-        if "Executable doesn't exist" in message:
-            message = "Falta Chromium. Ejecuta: python -m playwright install chromium"
-        _set_login(key, "error", "No se pudo abrir la ventana del portal. " + message[:200])
+        _set_login(key, "error", "No se pudo abrir el navegador. " + str(exc)[:250])
 
 
 # --------------------------------------------------------------------------- #
@@ -408,6 +533,8 @@ def _blocker(page) -> str:
     if page.locator("iframe[src*='recaptcha'], iframe[src*='hcaptcha'], iframe[src*='challenges.cloudflare'], .g-recaptcha, .h-captcha").count():
         return "captcha"
     body = _visible_text(page)
+    if BLOCK_TEXT.search(body[:600]):
+        return "bloqueo_portal"
     if CAPTCHA_TEXT.search(body):
         return "captcha"
     if TEST_TEXT.search(body):
@@ -434,9 +561,14 @@ def _perform(page, step):
             page.get_by_label(step["value"], exact=True).and_(page.locator(f"input[name='{name}']")).first.check()
 
 
-def apply_on_page(page, portal: str, url: str, planner, max_steps: int = 6) -> dict:
-    """Recorre el formulario del portal. `planner(fields)` devuelve el plan de llenado."""
-    trace = {"clicks": [], "filled": []}
+def apply_on_page(page, portal: str, url: str, planner, max_steps: int = 6, trace: dict | None = None) -> dict:
+    """Recorre el formulario del portal. `planner(fields)` devuelve el plan de llenado.
+
+    `trace` se comparte con quien llama para saber si hubo clics aunque ocurra un error.
+    """
+    trace = trace if trace is not None else {}
+    trace.setdefault("clicks", [])
+    trace.setdefault("filled", [])
 
     def result(status, reason="", **extra):
         return {"status": status, "reason": reason, "trace": trace, "url": page.url, **extra}
@@ -449,8 +581,10 @@ def apply_on_page(page, portal: str, url: str, planner, max_steps: int = 6) -> d
             return result("bloqueada", "sesion_cerrada", message="El portal pidió iniciar sesión nuevamente.")
         blocker = _blocker(page)
         if blocker:
-            return result("bloqueada", blocker, message="El portal muestra un CAPTCHA o una evaluación: requiere tu intervención." if blocker == "captcha"
-                          else "La postulación incluye una prueba o video: complétala personalmente.")
+            return result("bloqueada", blocker, message={
+                "captcha": "El portal muestra un CAPTCHA o una verificación: requiere tu intervención.",
+                "bloqueo_portal": "El portal bloqueó el acceso desde el navegador. Postula desde el aviso original o inténtalo más tarde.",
+            }.get(blocker, "La postulación incluye una prueba o video: complétala personalmente."))
         evidence = _confirmation(page)
         if evidence:
             return result("postulada", "confirmacion_portal", evidence=evidence, previa=not trace["clicks"])
@@ -532,8 +666,9 @@ def worker_loop():
     while not STOP.is_set():
         db = SessionLocal()
         try:
-            run = db.query(AutoApplyRun).filter_by(status="en_cola").order_by(AutoApplyRun.id).first()
-            run_id = run.id if run else None
+            # The login window and an application cannot share the browser profile at once.
+            queued = db.query(AutoApplyRun).filter_by(status="en_cola").order_by(AutoApplyRun.id).all()
+            run_id = next((r.id for r in queued if not login_active(r.profile_id)), None)
         finally:
             db.close()
         if not run_id:
@@ -544,18 +679,19 @@ def worker_loop():
         STOP.wait(delay * random.uniform(0.7, 1.3))
 
 
-def run_in_browser(state: dict, headless: bool, fn):
+def run_in_browser(pid: int, fn):
+    """Abre el Chrome/Edge del candidato con su perfil de JobFlow (sesiones incluidas)."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=headless)
+        real = RealBrowser(p, pid)
         try:
-            context = browser.new_context(storage_state=state, locale="es-PE", viewport={"width": 1280, "height": 900})
-            page = context.new_page()
-            outcome = fn(page)
-            outcome["storage_state"] = context.storage_state()
-            return outcome
+            page = real.context.new_page()
+            for extra in real.pages():
+                if extra != page and extra.url in ("about:blank", "chrome://newtab/", "edge://newtab/"):
+                    extra.close()
+            return fn(page)
         finally:
-            browser.close()
+            real.close()
 
 
 def process_run(run_id: int):
@@ -579,7 +715,7 @@ def process_run(run_id: int):
             state = json.loads(cipher().decrypt(acc.encrypted.encode())) if acc and acc.status == "connected" else None
         except (InvalidToken, ValueError):
             state = None
-        if state is None:
+        if not state or state.get("formato") != "navegador_real":
             return finish(db, run, {"status": "bloqueada", "reason": "sesion_cerrada", "message": "Vuelve a conectar tu cuenta del portal."})
         cv_path = None
         version = next((v for v in db.query(CVVersion).filter_by(application_id=app.id).order_by(CVVersion.id.desc())
@@ -592,11 +728,13 @@ def process_run(run_id: int):
         planner = lambda fields: plan_fields(fields, profile, vacancy.titulo, approved, cv_path)
         shot = evidence_dir() / f"run_{run.id}.png"
 
+        trace: dict = {}
+
         def work(page):
             try:
-                outcome = apply_on_page(page, run.portal, vacancy.url, planner)
+                outcome = apply_on_page(page, run.portal, vacancy.url, planner, trace=trace)
             except Exception as exc:
-                outcome = {"status": "error", "reason": "fallo_tecnico", "message": str(exc)[:300], "trace": {}}
+                outcome = {"status": "error", "reason": "fallo_tecnico", "message": str(exc)[:300], "trace": trace}
             try:
                 page.screenshot(path=str(shot))
                 outcome["captura"] = shot.name
@@ -604,11 +742,10 @@ def process_run(run_id: int):
                 pass
             return outcome
 
-        headless = os.getenv("JOBFLOW_APPLY_HEADLESS", "false").lower() == "true"
         try:
-            outcome = run_in_browser(state, headless, work)
+            outcome = run_in_browser(run.profile_id, work)
         except Exception as exc:
-            outcome = {"status": "error", "reason": "navegador", "message": "No se pudo abrir el navegador: " + str(exc)[:200], "trace": {}}
+            outcome = {"status": "error", "reason": "navegador", "message": "Falló el navegador: " + str(exc)[:200], "trace": trace}
         outcome["cv_version_id"] = version.id if version else None
         finish(db, run, outcome)
     finally:
@@ -622,10 +759,8 @@ def finish(db, run, outcome: dict):
     if outcome.get("status") == "error" and trace.get("clicks"):
         outcome = {**outcome, "status": "intento_no_confirmado",
                    "message": "Ocurrió un fallo después de pulsar en el portal. Revisa si la postulación figura antes de reintentar."}
-    state = outcome.pop("storage_state", None)
     acc = account(db, run.profile_id, run.portal)
-    if acc and state and outcome.get("reason") != "sesion_cerrada":
-        acc.encrypted = cipher().encrypt(json.dumps(state).encode()).decode()
+    if acc and outcome.get("status") == "postulada":
         acc.checked_at = datetime.utcnow()
     if acc and outcome.get("reason") == "sesion_cerrada":
         acc.status = "expired"
@@ -685,7 +820,7 @@ def queue_application(db, aid: int, confirm_not_sent: bool = False) -> AutoApply
     if detail and (detail.details or {}).get("analisis", {}).get("requisito_excluyente"):
         raise HTTPException(409, "La vacante tiene un requisito excluyente. Revísala antes de postular.")
     acc = account(db, app.profile_id, portal)
-    if not acc or acc.status != "connected":
+    if not acc or acc.status != "connected" or not account_ready(acc):
         raise HTTPException(409, f"Conecta tu cuenta de {PORTALS[portal]['nombre']} en Conexiones.")
     runs = db.query(AutoApplyRun).filter_by(application_id=aid).order_by(AutoApplyRun.id.desc()).all()
     if runs and runs[0].status in ACTIVE_RUNS:
@@ -740,7 +875,10 @@ def portals_status(pid: int, db: Session = Depends(get_db)):
     for key, cfg in PORTALS.items():
         acc = account(db, pid, key)
         login = LOGINS.get((pid, key))
-        accounts.append({"portal": key, "nombre": cfg["nombre"], "status": acc.status if acc else "disconnected",
+        status = acc.status if acc else "disconnected"
+        if acc and status == "connected" and not account_ready(acc):
+            status = "expired"  # sessions saved by 0.6.0 used the blocked automation browser
+        accounts.append({"portal": key, "nombre": cfg["nombre"], "status": status,
                          "connected_at": acc.connected_at.isoformat() if acc else None,
                          "login": {"status": login["status"], "message": login["message"]} if login else None})
     queue = db.query(AutoApplyRun).filter(AutoApplyRun.profile_id == pid, AutoApplyRun.status.in_(ACTIVE_RUNS)).count()
@@ -757,22 +895,50 @@ def connect_portal(pid: int, portal: str, db: Session = Depends(get_db)):
     ok, note = browser_status()
     if not ok:
         raise HTTPException(409, note)
-    current = LOGINS.get((pid, portal))
-    if current and current["status"] in ("abriendo", "esperando") and time.time() - current["at"] < LOGIN_TIMEOUT:
-        return {"status": current["status"], "message": "La ventana de inicio de sesión ya está abierta."}
-    _set_login((pid, portal), "abriendo", f"Abriendo {PORTALS[portal]['nombre']}…")
+    open_portal = login_active(pid)
+    if open_portal == portal:
+        return {"status": LOGINS[(pid, portal)]["status"], "message": "La ventana de inicio de sesión ya está abierta."}
+    if open_portal:
+        raise HTTPException(409, f"Termina primero la conexión de {PORTALS[open_portal]['nombre']} (o cancélala).")
+    if db.query(AutoApplyRun).filter_by(profile_id=pid, status="ejecutando").first():
+        raise HTTPException(409, "Hay una postulación en curso con tu navegador. Espera a que termine.")
+    _set_login((pid, portal), "abriendo", f"Abriendo {PORTALS[portal]['nombre']} en tu navegador…")
     threading.Thread(target=login_worker, args=(pid, portal), daemon=True, name=f"jobflow-login-{portal}").start()
-    return {"status": "abriendo", "message": f"Se abrirá una ventana de {PORTALS[portal]['nombre']}. Inicia sesión allí."}
+    return {"status": "abriendo", "message": f"Se abrirá {PORTALS[portal]['nombre']} en tu navegador. Inicia sesión allí y pulsa «Ya inicié sesión»."}
+
+
+@router.post("/{pid}/{portal}/verify")
+def verify_portal(pid: int, portal: str):
+    if login_active(pid) != portal:
+        raise HTTPException(409, "No hay una ventana de inicio de sesión abierta para este portal. Pulsa Conectar.")
+    _request_login((pid, portal), "verify")
+    return {"status": "verificando", "message": "Comprobando tu sesión…"}
+
+
+@router.post("/{pid}/{portal}/cancel")
+def cancel_portal(pid: int, portal: str):
+    if login_active(pid) == portal:
+        _request_login((pid, portal), "cancel")
+    return {"status": "cancelada", "message": "Cerrando la ventana de inicio de sesión."}
 
 
 @router.post("/{pid}/{portal}/disconnect")
 def disconnect_portal(pid: int, portal: str, db: Session = Depends(get_db)):
+    if login_active(pid) or db.query(AutoApplyRun).filter_by(profile_id=pid, status="ejecutando").first():
+        raise HTTPException(409, "Espera a que termine la ventana abierta o la postulación en curso.")
     acc = account(db, pid, portal)
     if acc:
         db.delete(acc)
         db.commit()
     LOGINS.pop((pid, portal), None)
-    return {"disconnected": True, "note": "Sesión eliminada de JobFlow. Tu cuenta del portal no se modificó."}
+    note = "Cuenta desconectada de JobFlow."
+    if not db.query(PortalAccount).filter_by(profile_id=pid).count():
+        # No connected portal remains: delete the browser profile and its cookies.
+        shutil.rmtree(Path(settings.data_dir).resolve() / "navegador" / f"perfil_{pid}", ignore_errors=True)
+        note += " Se borró la sesión guardada en el navegador de JobFlow."
+    else:
+        note += " Para cerrar la sesión por completo, sal de tu cuenta desde la web del portal."
+    return {"disconnected": True, "note": note}
 
 
 @router.post("/applications/{aid}/apply", status_code=202)

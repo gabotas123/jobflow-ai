@@ -5,6 +5,11 @@ Todos los cambios del proyecto, con fecha y commit. El historial vivo está en:
 
 ---
 
+## 09-13 · v0.6.1 — Inicio de sesión que sí conecta
+- El login se quedaba cargando: los portales bloquean el navegador de automatización.
+  Ahora JobFlow abre **tu Chrome/Edge** con un perfil propio, y hay botones
+  **«Ya inicié sesión»** y **«Cancelar»**. La verificación reconoce páginas de bloqueo.
+
 ## 09-13 · v0.6 — Lectura de avisos, cuentas de empleo y postulación automática
 - **Búsqueda real**: Bumeran (API pública), Computrabajo y LinkedIn vuelven a
   devolver vacantes (antes 0 resultados en todos los portales, también en Render).
