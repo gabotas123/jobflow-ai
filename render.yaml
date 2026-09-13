@@ -8,7 +8,12 @@ services:
     buildCommand: "pip install -r requirements.txt"
     startCommand: "uvicorn jobflow.main:app --host 0.0.0.0 --port $PORT"
     autoDeploy: true
+    healthCheckPath: /healthz
     envVars:
+      - key: JOBFLOW_REQUIRE_AUTH
+        value: "true"
+      - key: JOBFLOW_ACCESS_PASSWORD
+        generateValue: true
       - key: PYTHON_VERSION
         value: "3.12.10"
       - key: LLM_PROVIDER

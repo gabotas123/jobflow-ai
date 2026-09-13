@@ -35,7 +35,8 @@ class PlatformAdapter:
         return {
             "plataforma": self.platform,
             "descripcion": self.description,
-            "modo": "autofill" if self.platform in ("bumeran", "computrabajo", "test") else "copiloto",
+            "modo": "demostracion" if self.platform == "test" else "preparacion_manual",
+            "envio_real_disponible": False,
             "tos_note": self.tos_note,
         }
 
@@ -79,5 +80,7 @@ ADAPTERS: Dict[str, PlatformAdapter.__class__] = {
 
 
 def get_adapter(platform: str, profile: CandidateProfile) -> PlatformAdapter:
-    cls = ADAPTERS.get(platform, TestFormAdapter)
+    if platform not in ADAPTERS:
+        raise ValueError("Plataforma no implementada")
+    cls = ADAPTERS[platform]
     return cls(profile)

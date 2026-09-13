@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 
 from . import models
 from .adapters import ADAPTERS, get_adapter
-from .cv_generator import build_docx, optimize_profile, render_cv_html, render_latex
+from .cv_generator import build_docx, optimize_profile, render_cv_html, render_latex, tailored_profile, CV_VARIANTS
 from .job_search import PLATFORMS, search_all
 from .autofill import (
     TEST_FORM_SCHEMA, approve, create_draft, detect_form, generate_answers,
@@ -38,6 +38,9 @@ from .db import get_db
 from .email_monitor import classify_email, enviar_correo
 from .gap_analysis import analyze as run_gap_analysis
 from .knowledge import build_gabriel
+from .config import settings
+from .workflow import ApplicationDetail, AuditEvent, evaluate, register, safe_url
+from .schemas import JobImportRequest, ApplicationUpdateRequest, EmailImportRequest
 from .schemas import (
     ActivePuestoRequest, AnalysisRequest, ApproveRequest, EmailClassifyRequest,
     FormRunRequest, GenerateRequest, PlatformConnectRequest, PostulacionRequest,
@@ -55,11 +58,29 @@ ALLOWED_SUFFIXES = {".pdf", ".docx", ".txt"}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     ensure_seed()
-    yield
+    import threading
+    stop = threading.Event()
+    worker = None
+    if os.getenv("JOBFLOW_SCHEDULER", "false").lower() == "true":
+        from .scheduler import loop
+        worker = threading.Thread(target=loop, args=(stop,), daemon=True)
+        worker.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        if worker:
+            worker.join(timeout=2)
 
 
-app = FastAPI(title="JobFlow AI", version="0.3.0", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app = FastAPI(title="JobFlow AI", version="0.5.0", lifespan=lifespan)
+from .career import router as career_router, require_ready
+from .google_integration import router as google_router
+app.include_router(career_router)
+app.include_router(google_router)
+# Single owner application: use Codespaces private forwarding or HTTP Basic.
+from .security import AccessMiddleware
+app.add_middleware(AccessMiddleware)
 app.mount("/assets", StaticFiles(directory=str(WEB_DIR)), name="assets")
 
 
@@ -73,6 +94,8 @@ def _user(db: Session) -> models.Usuario:
 def _candidate(db: Session, profile_id: Optional[int] = None):
     """Resuelve el perfiles de candidato (activo o default: el primero)."""
     row = get_profile_row(db, profile_id) if profile_id else None
+    if profile_id and not row:
+        raise HTTPException(404, "Perfil no encontrado")
     if not row:
         rows = list_profile_rows(db)
         if not rows:
@@ -116,10 +139,16 @@ async def api_cv_upload(
         raise HTTPException(400, f"Formato no soportado: {suffix}. Usa PDF, DOCX o TXT.")
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(await file.read())
+        content = await file.read(10 * 1024 * 1024 + 1)
+        if len(content) > 10 * 1024 * 1024:
+            os.unlink(tmp.name)
+            raise HTTPException(413, "El CV supera los 10 MB.")
+        tmp.write(content)
         tmp_path = tmp.name
     try:
         text = extract_text(tmp_path)
+    except Exception:
+        raise HTTPException(400, "No se pudo leer el CV. Comprueba que no esté dañado o protegido.")
     finally:
         os.unlink(tmp_path)
 
@@ -133,9 +162,7 @@ async def api_cv_upload(
     )
     db.add(row)
     db.flush()
-    # Puesto objetivo por defecto (cargo principal + dominio)
-    pv = default_puesto_values(profile)
-    db.add(models.PuestoObjetivo(profile_id=row.id, activo=True, **pv))
+    # The candidate selects targets only after reviewing extracted facts.
     db.commit()
     db.refresh(row)
     result = profile.to_dict()
@@ -169,6 +196,14 @@ def api_profile_update(profile_id: int, req: ProfileUpdateRequest, db: Session =
             setattr(profile, field, value)
     if req.skills is not None:
         profile.skills = [(s.strip(), "") for s in req.skills if s.strip()]
+    for field in ("experiencia", "educacion", "languages", "proyectos", "pendientes"):
+        value = getattr(req, field, None)
+        if value is not None:
+            setattr(profile, field, value)
+    if req.skill_levels is not None:
+        profile.skills = [(s[0], s[1]) for s in req.skill_levels]
+    profile.verificado = False
+    profile.hechos_confirmados = {}  # Edits invalidate previous field confirmations.
     row.nombre = profile.nombre
     row.estructura = profile.to_dict()
     db.commit()
@@ -182,7 +217,9 @@ def api_profile_update(profile_id: int, req: ProfileUpdateRequest, db: Session =
 @app.post("/api/cv/generate")
 def api_cv_generate(req: GenerateRequest, db: Session = Depends(get_db)):
     profile, row = _candidate(db, req.profile_id)
-    optimized, changes = optimize_profile(profile)
+    if req.variant not in CV_VARIANTS:
+        raise HTTPException(422, "Versión de CV desconocida")
+    optimized, changes = tailored_profile(profile, req.variant)
     optimized["id"] = row.id
     return {
         "candidato": profile.nombre,
@@ -191,20 +228,24 @@ def api_cv_generate(req: GenerateRequest, db: Session = Depends(get_db)):
         "correcciones": changes[:20],
         "cv": optimized,
         "cv_html": render_cv_html(optimized),
-        "download_url": f"/api/cv/{row.id}/download",
+        "download_url": f"/api/cv/{row.id}/download?variant={req.variant}",
         "latex": render_latex(optimized),
-        "latex_url": f"/api/cv/{row.id}/download?format=latex",
+        "latex_url": f"/api/cv/{row.id}/download?format=latex&variant={req.variant}",
     }
 
 
 @app.get("/api/cv/{profile_id}/download")
-def api_cv_download(profile_id: int, format: str = "docx", db: Session = Depends(get_db)):
+def api_cv_download(profile_id: int, format: str = "docx", variant: str = "maestro", db: Session = Depends(get_db)):
     row = get_profile_row(db, profile_id)
     if not row:
         raise HTTPException(404, "Perfil no encontrado")
     profile = profile_from_row(row)
-    optimized, _ = optimize_profile(profile)
-    fname = optimized["nombre"].replace(" ", "_").replace(" ", "_")
+    if variant not in CV_VARIANTS or format not in ("docx", "latex"):
+        raise HTTPException(422, "Formato o versión de CV desconocidos")
+    optimized, _ = tailored_profile(profile, variant)
+    import re, unicodedata
+    ascii_name = unicodedata.normalize("NFKD", optimized["nombre"]).encode("ascii", "ignore").decode()
+    fname = (re.sub(r"[^A-Za-z0-9_-]", "_", ascii_name)[:80] or "Candidato") + "_" + variant
     if format == "latex":
         tex = render_latex(optimized)
         return StreamingResponse(
@@ -226,8 +267,14 @@ def api_cv_download(profile_id: int, format: str = "docx", db: Session = Depends
 @app.post("/api/jobs/search")
 def api_jobs_search(req: GenerateRequest, db: Session = Depends(get_db)):
     profile, row = _candidate(db, req.profile_id)
+    require_ready(db, row.id)
     platforms = ["bumeran", "computrabajo", "indeed", "linkedin"]
-    results = search_all(profile, platforms)
+    choices = _puestos(db, row.id)
+    active = next((p for p in choices if p.id == req.target_id), None) if req.target_id else next((p for p in choices if p.activo), None)
+    if not active:
+        raise HTTPException(409, "Selecciona un puesto objetivo guardado.")
+    results = search_all(profile, platforms, location=active.ubicacion if active else profile.ubicacion,
+                         query=active.titulo if active else None)
     return {
         "candidato": profile.nombre,
         "profile_id": row.id,
@@ -250,21 +297,6 @@ def api_puestos_list(profile_id: int, db: Session = Depends(get_db)):
     if not row:
         raise HTTPException(404, "Perfil no encontrado")
     rows = _puestos(db, profile_id)
-    if not rows:  # backfill: CVs subidos antes de la funcion de puestos
-        profile = profile_from_row(row)
-        if profile.verificado:  # perfil semilla: puesto de cobranzas con su rango
-            from .seed import DEFAULT_ROLE
-            pv = {"titulo": DEFAULT_ROLE["target_role"], "seniority": DEFAULT_ROLE["seniority"],
-                  "modality": "Presencial o hibrido", "ubicacion": profile.ubicacion,
-                  "rango_salarial": "S/2500 - S/2800",
-                  "must_haves": DEFAULT_ROLE["must"], "nice_to_haves": DEFAULT_ROLE["nice"]}
-        else:
-            pv = default_puesto_values(profile)
-        p = models.PuestoObjetivo(profile_id=profile_id, activo=True, **pv)
-        db.add(p)
-        db.commit()
-        db.refresh(p)
-        rows = [p]
     return [
         {"id": p.id, "titulo": p.titulo, "seniority": p.seniority, "modality": p.modality,
          "ubicacion": p.ubicacion, "rango_salarial": p.rango_salarial,
@@ -330,7 +362,7 @@ def api_connections(db: Session = Depends(get_db)):
             rows.append(r)
         db.commit()
     return [
-        {"plataforma": r.plataforma, "conectada": bool(r.conectada), "nota": r.nota,
+        {"plataforma": r.plataforma, "conectada": False, "nota": r.nota,
          "actualizada": r.actualizada.isoformat() if r.actualizada else None}
         for r in rows
     ]
@@ -338,15 +370,7 @@ def api_connections(db: Session = Depends(get_db)):
 
 @app.put("/api/platforms/connections")
 def api_connection_update(req: PlatformConnectRequest, db: Session = Depends(get_db)):
-    user = _user(db)
-    r = db.query(models.PlataformaConectada).filter_by(usuario_id=user.id,
-                                                      plataforma=req.plataforma).first()
-    if not r:
-        r = models.PlataformaConectada(usuario_id=user.id, plataforma=req.plataforma, nota="")
-        db.add(r)
-    r.conectada = req.conectada
-    db.commit()
-    return {"plataforma": r.plataforma, "conectada": bool(r.conectada)}
+    raise HTTPException(409, "La conexión de cuentas aún no está implementada. Marcar una casilla no inicia sesión.")
 
 
 # --------------------------------------------------------------------------- #
@@ -355,35 +379,16 @@ def api_connection_update(req: PlatformConnectRequest, db: Session = Depends(get
 @app.post("/api/postulaciones", status_code=201)
 def api_postular(req: PostulacionRequest, db: Session = Depends(get_db)):
     user = _user(db)
-    # vincular (o crear) la vacante
-    vacante = None
-    if req.url:
-        vacante = db.query(models.Vacante).filter_by(url=req.url.strip()).first()
-    if not vacante:
-        vacante = models.Vacante(usuario_id=user.id, plataforma=req.plataforma, url=req.url,
-                                 titulo=req.titulo, empresa=req.empresa)
-        db.add(vacante)
-        db.flush()
-    post = models.Postulacion(
-        usuario_id=user.id, profile_id=req.profile_id, vacante_id=vacante.id,
-        estado=req.estado, fecha_envio=datetime.utcnow(), respuestas_formulario=[],
-    )
-    db.add(post)
-    db.flush()
-
-    # correo automatico (simulado si no hay SMTP) - conector correo <-> solicitud
-    correo = enviar_correo(
-        db, user.id, destinatario=user.email,
-        asunto=f"Postulacion registrada: {req.titulo} - {req.empresa}",
-        cuerpo=(f"Registraste una postulacion desde JobFlow AI.\n"
-                f"Puesto: {req.titulo}\nEmpresa: {req.empresa}\n"
-                f"Plataforma: {req.plataforma}\nEnlace: {req.url}"),
-        postulacion_id=post.id,
-    )
-    db.commit()
-    db.refresh(post)
-    return {"postulacion_id": post.id, "vacante_id": vacante.id, "estado": post.estado,
-            "correo": {"estado": correo.estado, "destinatario": correo.destinatario}}
+    profile, row = _candidate(db, req.profile_id)
+    if not req.titulo.strip() or not req.empresa.strip():
+        raise HTTPException(422, "Indica empresa y puesto para guardar la oportunidad.")
+    job = req.model_dump()
+    try:
+        post, duplicate = register(db, user.id, row.id, job, evaluate(profile, job))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    return {"postulacion_id": post.id, "vacante_id": post.vacante_id,
+            "estado": post.estado, "duplicada": duplicate, "enviada": False}
 
 
 # --------------------------------------------------------------------------- #
@@ -424,7 +429,8 @@ def api_overview(profile_id: Optional[int] = None, db: Session = Depends(get_db)
     last = (db.query(models.GapAnalysis)
             .filter_by(profile_id=row.id)
             .order_by(models.GapAnalysis.creado.desc()).first())
-    apps = db.query(models.Postulacion).filter_by(profile_id=row.id).count()
+    records = db.query(models.Postulacion).filter_by(profile_id=row.id).all()
+    apps = sum(bool(db.query(AuditEvent).filter_by(application_id=p.id, action="postulada").first()) for p in records)
     pendientes = (db.query(models.EmailMonitoreado)
                   .filter_by(usuario_id=user.id, estado="pendiente").count())
     adapters = [get_adapter(p, build_gabriel()).status() for p in ADAPTERS]
@@ -437,6 +443,7 @@ def api_overview(profile_id: Optional[int] = None, db: Session = Depends(get_db)
                             "rango_salarial": puesto.rango_salarial} if puesto else None,
         "puesto_analizado": last.puesto_objetivo if last else None,
         "postulaciones": apps,
+        "oportunidades": len(records),
         "correos_pendientes": pendientes,
         "adapters": adapters,
     }
@@ -459,6 +466,8 @@ def api_test_schema():
 def api_form_prepare(req: FormRunRequest, db: Session = Depends(get_db)):
     user = _user(db)
     profile, row = _candidate(db, req.profile_id)
+    if req.platform != "test" and not req.form_schema:
+        raise HTTPException(422, "Pega las preguntas reales; el formulario de ejemplo no representa al portal.")
     fields = detect_form(req.form_schema)
     mapping = map_fields(fields)
     answers = generate_answers(mapping, profile, req.vacante_titulo)
@@ -471,7 +480,7 @@ def api_form_prepare(req: FormRunRequest, db: Session = Depends(get_db)):
         "fields": fields,
         "mapping": mapping,
         "answers": answers,
-        "regla_humana": "La postulacion solo se registra tras tu aprobacion.",
+        "regla_humana": "Borrador para revisión. No se envía al portal.",
     }
 
 
@@ -490,7 +499,10 @@ def api_form_get(form_id: int, db: Session = Depends(get_db)):
 
 @app.post("/api/form/{form_id}/approve")
 def api_form_approve(form_id: int, req: ApproveRequest, db: Session = Depends(get_db)):
-    d = approve(db, form_id, req.edits)
+    try:
+        d = approve(db, form_id, req.edits)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
     if not d:
         raise HTTPException(404, "Formulario no encontrado")
     return {"aprobado": True, "form_id": d.id, "respuestas": d.respuestas_generadas}
@@ -498,35 +510,14 @@ def api_form_approve(form_id: int, req: ApproveRequest, db: Session = Depends(ge
 
 @app.post("/api/form/{form_id}/submit")
 def api_form_submit(form_id: int, db: Session = Depends(get_db)):
-    user = _user(db)
-    d = submit(db, form_id)
+    try:
+        d = submit(db, form_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
     if not d:
-        raise HTTPException(400, "Formulario no aprobado por el usuario (regla human-in-the-loop).")
-    postulacion = models.Postulacion(
-        usuario_id=user.id, profile_id=d.profile_id,
-        estado="enviado", fecha_envio=datetime.utcnow(),
-        respuestas_formulario=d.respuestas_generadas,
-    )
-    db.add(postulacion)
-    db.flush()
-    # Conector correo <-> solicitud: si el formulario vino de un correo, marcarlo resuelto
-    if d.email_id:
-        email = db.get(models.EmailMonitoreado, d.email_id)
-        if email:
-            email.estado = "resuelto"
-        postulacion.respuestas_formulario = d.respuestas_generadas
-    # notificacion automatica del proceso (simulada si no hay SMTP)
-    correo = enviar_correo(
-        db, user.id, destinatario=user.email,
-        asunto="Formulario de postulacion completado (JobFlow AI)",
-        cuerpo=f"Se registro la postulacion #{postulacion.id} con las respuestas aprobadas.",
-        postulacion_id=postulacion.id,
-    )
-    db.commit()
-    db.refresh(postulacion)
-    return {"enviado": True, "postulacion_id": postulacion.id,
-            "correo": {"estado": correo.estado, "destinatario": correo.destinatario},
-            "regla": "Registrada solo porque tenia aprobacion humana."}
+        raise HTTPException(409, "Revisa y aprueba el formulario primero.")
+    return {"enviado": False, "simulado": True, "estado": "demostracion_completada",
+            "form_id": d.id, "mensaje": "Prueba completada. No se envió ninguna postulación a una empresa."}
 
 
 # --------------------------------------------------------------------------- #
@@ -555,25 +546,7 @@ def api_emails(db: Session = Depends(get_db)):
 def api_email_resolver(email_id: int, db: Session = Depends(get_db)):
     """Conecta el correo con la solicitud: crea el formulario (pipeline de autofill)
     vinculado a ese correo, para aprobar y enviar desde la pestana Autofill."""
-    user = _user(db)
-    email = db.get(models.EmailMonitoreado, email_id)
-    if not email:
-        raise HTTPException(404, "Correo no encontrado")
-    profile, row = _candidate(db, None)
-    vacante_titulo = email.asunto.split(" - ")[-1].strip()[:60] or "Solicitud de empleo"
-    fields = detect_form(None)
-    mapping = map_fields(fields)
-    answers = generate_answers(mapping, profile, vacante_titulo)
-    draft = create_draft(db, row.id, "email", vacante_titulo, fields, mapping, answers)
-    draft.email_id = email.id
-    db.commit()
-    db.refresh(draft)
-    return {
-        "form_id": draft.id, "plataforma": draft.plataforma, "vacante": vacante_titulo,
-        "candidato": profile.nombre, "fields": fields, "mapping": mapping,
-        "answers": answers,
-        "regla_humana": "La postulacion solo se registra tras tu aprobacion.",
-    }
+    raise HTTPException(409, "Pega las preguntas del enlace en Preparar respuestas. No se ha abierto ni enviado el formulario del correo.")
 
 
 @app.post("/api/emails/classify")
@@ -593,8 +566,16 @@ def api_applications(profile_id: Optional[int] = None, db: Session = Depends(get
         vacante = db.get(models.Vacante, p.vacante_id) if p.vacante_id else None
         correo = (db.query(models.EmailEnviado).filter_by(postulacion_id=p.id)
                   .order_by(models.EmailEnviado.id.desc()).first())
+        detail = db.query(ApplicationDetail).filter_by(application_id=p.id).first()
+        events = db.query(AuditEvent).filter_by(application_id=p.id).order_by(AuditEvent.id).all()
+        confirmed = any(e.action == "postulada" for e in events)
+        shown_status = p.estado
+        if p.estado in ("enviado", "enviada_desde_busqueda", "postulada") and not confirmed:
+            shown_status = "intento_no_confirmado"
         out.append({
-            "id": p.id, "estado": p.estado,
+            "detalle": detail.details if detail else {},
+            "auditoria": [{"accion": e.action, "datos": e.payload, "fecha": e.created.isoformat()} for e in events],
+            "id": p.id, "estado": shown_status,
             "fecha": p.fecha_envio.isoformat() if p.fecha_envio else None,
             "n_respuestas": len(p.respuestas_formulario or []),
             "vacante": {
@@ -607,3 +588,130 @@ def api_applications(profile_id: Optional[int] = None, db: Session = Depends(get
                        "asunto": correo.asunto} if correo else None,
         })
     return out
+
+
+@app.get("/healthz")
+def health():
+    return {"status": "ok", "version": "0.5.0"}
+
+
+@app.post("/api/jobs/import", status_code=201)
+def import_job(req: JobImportRequest, db: Session = Depends(get_db)):
+    profile, row = _candidate(db, req.profile_id)
+    job = req.model_dump(exclude={"profile_id"})
+    job["titulo"], job["empresa"] = job["titulo"].strip(), job["empresa"].strip()
+    if not job["titulo"] or not job["empresa"]:
+        raise HTTPException(422, "Empresa y puesto son obligatorios.")
+    analysis = evaluate(profile, job)
+    try:
+        app, duplicate = register(db, _user(db).id, row.id, job, analysis)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    return {"id": app.id, "estado": app.estado, "duplicada": duplicate, "analisis": analysis}
+
+
+@app.patch("/api/applications/{application_id}")
+def update_application(application_id: int, req: ApplicationUpdateRequest, db: Session = Depends(get_db)):
+    app = db.get(models.Postulacion, application_id)
+    if not app:
+        raise HTTPException(404, "Oportunidad no encontrada")
+    if req.estado == "duplicado_descartado":
+        if app.estado != "pendiente_revision_duplicado" or not req.nota.strip():
+            raise HTTPException(422, "Indica por qué los anuncios corresponden a vacantes diferentes.")
+        detail = db.query(ApplicationDetail).filter_by(application_id=app.id).first()
+        excluded = (detail.details or {}).get("analisis", {}).get("requisito_excluyente") if detail else False
+        app.estado = "incompatible" if excluded else "descubierta"
+        db.add(AuditEvent(application_id=app.id, action="duplicado_descartado", payload={"nota": req.nota}))
+        db.commit()
+        return {"id": app.id, "estado": app.estado}
+    allowed = {"descubierta", "preparada", "intento_no_confirmado", "postulada", "en_revision",
+               "cv_leido", "contactado", "entrevista", "evaluacion", "rechazada", "oferta", "vencida"}
+    if req.estado not in allowed:
+        raise HTTPException(422, "Estado no permitido")
+    if app.estado in ("incompatible", "pendiente_revision_duplicado") and req.estado not in ("rechazada", "vencida"):
+        raise HTTPException(409, "Esta vacante está bloqueada por requisitos o posible duplicado. Revisa el aviso original.")
+    confirmed = db.query(AuditEvent).filter_by(application_id=app.id, action="postulada").first()
+    if req.estado in ("en_revision", "cv_leido", "contactado", "entrevista", "evaluacion", "oferta") and not confirmed:
+        raise HTTPException(409, "Registra primero la evidencia de la postulación.")
+    if req.estado == "postulada":
+        if req.cv_version_id is not None:
+            from .career import CVVersion
+            version = db.get(CVVersion, req.cv_version_id)
+            if not version or version.application_id != app.id or not version.snapshot.get("approved"):
+                raise HTTPException(409, "Selecciona una versión aprobada de esta candidatura.")
+        if req.tipo_evidencia not in ("mensaje_portal", "correo_confirmacion", "id_candidatura") or not req.evidencia.strip():
+            raise HTTPException(422, "Indica el mensaje del portal, correo de confirmación o ID de candidatura.")
+        if not app.fecha_envio:
+            app.fecha_envio = datetime.utcnow()
+    app.estado = req.estado
+    db.add(AuditEvent(application_id=app.id, action=req.estado, payload={
+        "fuente": "Registro manual del candidato; no verificación automática del portal",
+        "tipo_evidencia": req.tipo_evidencia, "evidencia": req.evidencia.strip(), "nota": req.nota, "cv_version_id": req.cv_version_id}))
+    db.commit()
+    return {"id": app.id, "estado": app.estado}
+
+
+@app.get("/api/tracker/export")
+def export_tracker(profile_id: Optional[int] = None, db: Session = Depends(get_db)):
+    import json
+    content = json.dumps(api_applications(profile_id, db), ensure_ascii=False, indent=2).encode()
+    return StreamingResponse(iter([content]), media_type="application/json",
+                             headers={"Content-Disposition": 'attachment; filename="jobflow-seguimiento.json"'})
+
+
+@app.post("/api/emails/import", status_code=201)
+def import_email(req: EmailImportRequest, db: Session = Depends(get_db)):
+    user = _user(db)
+    previous = db.query(models.EmailMonitoreado).filter_by(
+        usuario_id=user.id, remitente=req.remitente, asunto=req.asunto, cuerpo=req.cuerpo).first()
+    if previous:
+        return {"id": previous.id, "duplicado": True}
+    result = classify_email(req.remitente, req.asunto, req.cuerpo)
+    email = models.EmailMonitoreado(usuario_id=user.id, remitente=req.remitente, asunto=req.asunto,
+                                   cuerpo=req.cuerpo, clasificacion=result["clasificacion"],
+                                   tiene_formulario=result["tiene_formulario"], estado="importado_manualmente")
+    db.add(email)
+    db.commit()
+    return {"id": email.id, "duplicado": False, "clasificacion": result,
+            "nota": "Texto importado; identidad del remitente y enlaces no verificados."}
+
+
+@app.post("/api/applications/{application_id}/prepare")
+def prepare_application(application_id: int, req: FormRunRequest, db: Session = Depends(get_db)):
+    app = db.get(models.Postulacion, application_id)
+    if not app:
+        raise HTTPException(404, "Oportunidad no encontrada")
+    if app.estado in ("incompatible", "pendiente_revision_duplicado", "vencida", "rechazada"):
+        raise HTTPException(409, "Esta oportunidad requiere revisión antes de preparar respuestas.")
+    if db.query(AuditEvent).filter_by(application_id=app.id, action="postulada").first():
+        raise HTTPException(409, "Ya registraste una postulación; usa Respuestas para cuestionarios posteriores.")
+    if not req.form_schema:
+        raise HTTPException(422, "Pega las preguntas reales del portal, una por línea.")
+    profile, row = _candidate(db, app.profile_id)
+    if req.profile_id and req.profile_id != row.id:
+        raise HTTPException(409, "La oportunidad pertenece a otro perfil.")
+    vacancy = db.get(models.Vacante, app.vacante_id)
+    detail = db.query(ApplicationDetail).filter_by(application_id=app.id).first()
+    variant = (detail.details or {}).get("analisis", {}).get("cv_seleccionado", "maestro") if detail else "maestro"
+    fields = detect_form(req.form_schema)
+    mapping = map_fields(fields)
+    answers = generate_answers(mapping, profile, vacancy.titulo if vacancy else "")
+    draft = create_draft(db, row.id, "manual", vacancy.titulo if vacancy else "", fields, mapping, answers)
+    draft.postulacion_id = app.id
+    app.estado = "preparada"
+    app.respuestas_formulario = answers
+    cv, _ = tailored_profile(profile, variant)
+    from .career import CVVersion, profile_hash
+    approved_versions = db.query(CVVersion).filter_by(application_id=app.id).order_by(CVVersion.id.desc()).all()
+    selected = next((v for v in approved_versions if v.snapshot.get("approved")
+                     and v.snapshot.get("profile_hash") == profile_hash(row)), None)
+    if selected:
+        cv = selected.snapshot["cv"]
+    db.add(AuditEvent(application_id=app.id, action="preparada", payload={
+        "form_id": draft.id, "cv_variante": variant, "perfil_snapshot": profile.to_dict(),
+        "cv_version_id": selected.id if selected else None,
+        "cv_latex": render_latex(cv), "respuestas_borrador": answers}))
+    db.commit()
+    return {"form_id": draft.id, "plataforma": "manual", "vacante": vacancy.titulo if vacancy else "",
+            "candidato": profile.nombre, "answers": answers,
+            "regla_humana": "Borrador vinculado al seguimiento. Revisa antes de copiar al portal."}

@@ -209,16 +209,9 @@ def build_query(profile) -> str:
 
 
 def quick_match(profile, result: dict) -> int:
-    """Affinidad rapida %: tokens del perfil (skills + headline + cargo) vs resultado."""
-    profile_tokens = set()
-    for kw in [s for s, _ in profile.skills] + [_norm(profile.headline or "")] + \
-              [_norm(e.get("cargo", "")) for e in profile.experiencia[:2]]:
-        profile_tokens.update(t for t in _norm(kw).split() if len(t) > 3)
-    text = _norm(f"{result['titulo']} {result['empresa']} {result['ubicacion']}")
-    hits = sum(1 for t in profile_tokens if t in text)
-    if not profile_tokens:
-        return 0
-    return min(95, 40 + int(hits / len(profile_tokens) * 60))
+    from .workflow import evaluate
+    return evaluate(profile, {"titulo": result.get("titulo", ""),
+                              "ubicacion": result.get("ubicacion", "")})["compatibilidad"]
 
 
 def search(profile, platform: str, query: str, location: str = "") -> Dict:
@@ -230,8 +223,10 @@ def search(profile, platform: str, query: str, location: str = "") -> Dict:
     }
     html = fetch_http(url)
     extracted: List[dict] = []
-    if html and ("Security Check" in html or len(re.sub(r"<[^>]+>", "", html).strip()) < 60):
-        html = None  # contenido anti-bot: intentar navegador
+    if html and any(marker in html.lower() for marker in ("security check", "captcha", "verify you are human")):
+        entry["estado"] = "protegida"
+        entry["nota"] = "Verificación detectada. Abre el enlace personalmente en el portal."
+        return entry
     pw = fetch_playwright(url)
     if pw:
         html = pw.get("html") or html
@@ -265,14 +260,29 @@ def search(profile, platform: str, query: str, location: str = "") -> Dict:
         entry["estado"] = "requiere_navegador"
         entry["nota"] = "No se extrajeron tarjetas de esta pagina. Abre el enlace en tu navegador."
         return entry
+    from .workflow import evaluate, safe_url
+    valid = []
     for r in results:
-        r["match"] = quick_match(profile, r)
+        try:
+            r["link"] = safe_url(r.get("link", ""))
+        except ValueError:
+            continue
+        if not r["link"]:
+            continue
+        analysis = evaluate(profile, r)
+        r["match"] = analysis["compatibilidad"]
+        r["analisis"] = analysis
+        if not analysis["requisito_excluyente"]:
+            valid.append(r)
+    results = valid
     results.sort(key=lambda r: r["match"], reverse=True)
     entry["estado"] = "ok"
     entry["resultados"] = results
     return entry
 
 
-def search_all(profile, platforms: List[str], location: str = "") -> List[Dict]:
-    query = build_query(profile)
-    return [search(profile, p, query, location) for p in platforms]
+def search_all(profile, platforms: List[str], location: str = "", query=None) -> List[Dict]:
+    from concurrent.futures import ThreadPoolExecutor
+    query = query or build_query(profile)
+    with ThreadPoolExecutor(max_workers=min(4, len(platforms) or 1)) as pool:
+        return list(pool.map(lambda p: search(profile, p, query, location), platforms))

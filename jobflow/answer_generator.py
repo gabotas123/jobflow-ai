@@ -5,8 +5,7 @@ Construye un banco de respuestas anclado en los datos del CandidateProfile
   - si el dato existe en el perfil -> respuesta + fuente + confianza alta;
   - si NO existe -> `needs_input=True` (la UI lo marca; nunca se inventa).
 
-Si el perfil es `verificado` (base de conocimiento) se usan las respuestas
-acordadas del prompt maestro.
+Cada respuesta se prepara desde este candidato y requiere revisión.
 """
 from __future__ import annotations
 
@@ -39,12 +38,10 @@ def _summary_for(p: CandidateProfile) -> str:
 
 
 def _experience_answer(p: CandidateProfile) -> str:
-    if p.verificado:
-        return ANSWER_TEMPLATES["experiencia_total"]
     exp = p.experiencia
     if not exp:
         return ""
-    roles = [f"{e.get('cargo') or 'Analista'} en {e.get('empresa')}"
+    roles = [f"{e.get('cargo') or 'Funciones' } en {e.get('empresa')}"
              for e in exp[:3] if e.get("empresa")]
     return (f"Experiencia en: {'; '.join(roles)}. "
             f"{_summary_for(p)}")
@@ -60,7 +57,7 @@ def build_answers(p: CandidateProfile, vacante_titulo: str = "",
             "answer": value or "",
             "fuente": fuente,
             "confianza": confianza if value else 0.0,
-            "needs_input": not bool(value),
+            "needs_input": not bool(value) or key not in p.hechos_confirmados,
         }
 
     salario = p.rango_salarial or _salary_for(seniority or p.seniority or "")
@@ -69,7 +66,7 @@ def build_answers(p: CandidateProfile, vacante_titulo: str = "",
     add("salario_pretendido", salario, "Rango / estrategia salarial")
     add("disponibilidad", p.disponibilidad, "Dato del perfil")
     add("movilidad", p.movilidad, "Dato del perfil")
-    add("modalidad", "Segun el puesto; preferencia a confirmar", "Preferencia (confirmar)")
+    add("modalidad", "", "Preferencia pendiente de confirmar")
     add("herramientas", ", ".join(s for s, _ in p.skills), "Habilidades del CV")
     add("formacion", " | ".join(p.educacion), "Formacion del CV")
     add("telefono", p.telefono, "Contacto")
@@ -81,17 +78,9 @@ def build_answers(p: CandidateProfile, vacante_titulo: str = "",
                            f"experiencia y habilidades para el perfil requerido.") if vacante_titulo
        else "Alineado con mi experiencia y habilidades.", "Razonamiento sobre la vacante", 0.6)
 
-    idioma = next((v for k, v in p.languages.items() if k == "ingles"), None)
+    from .workflow import norm
+    idioma = next((v for k, v in p.languages.items() if norm(k) in ("ingles", "english")), None)
     if idioma:
         add("idioma_ingles", str(idioma).capitalize(), "Idiomas del CV")
-    elif p.languages:
-        first = next(iter(p.languages.values()))
-        add("idioma_ingles", str(first).capitalize(), "Idiomas del CV", 0.8)
-
-    # Campos extra SOLO para el perfil verificado (respuestas acordadas)
-    if p.verificado:
-        for key in ("experiencia_reaseguros", "experiencia_flujo_caja", "dos_anos_como_analista"):
-            out[key] = {"answer": ANSWER_TEMPLATES[key], "fuente": "Respuesta acordada",
-                        "confianza": 1.0, "needs_input": False}
 
     return out

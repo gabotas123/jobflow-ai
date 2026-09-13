@@ -95,7 +95,8 @@ def _generate_summary(p: CandidateProfile) -> str:
         parts.append(f"{p.nombre} con experiencia en {role_txt}.")
     if skills_txt:
         parts.append(f"Manejo {skills_txt}.")
-    parts.append("Disponible para aportar al equipo desde el primer día.")
+    if p.disponibilidad:
+        parts.append(f"Disponibilidad: {p.disponibilidad}.")
     return " ".join(parts) if parts else "Perfil profesional."
 
 
@@ -130,6 +131,16 @@ def optimize_profile(p: CandidateProfile) -> Tuple[dict, List[dict]]:
 #  HTML del CV (preview)
 # --------------------------------------------------------------------------- #
 def render_cv_html(profile: dict) -> str:
+    from html import escape
+    def escaped(value):
+        if isinstance(value, str):
+            return escape(value, quote=True)
+        if isinstance(value, dict):
+            return {escape(str(k), quote=True): escaped(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [escaped(v) for v in value]
+        return value
+    profile = escaped(profile)
     exp = ""
     for e in profile.get("experiencia", []):
         if not isinstance(e, dict):
@@ -359,3 +370,19 @@ def build_docx(profile: dict) -> BytesIO:
     doc.save(bio)
     bio.seek(0)
     return bio
+
+
+CV_VARIANTS = {"maestro": "Perfil profesional", "cobranzas": "Cobranzas B2B y cuentas por cobrar",
+               "gestion": "Costos y control de gestión", "datos": "Datos y reporting"}
+
+
+def tailored_profile(profile, variant="maestro"):
+    """Reorder existing facts by relevance without introducing titles or claims."""
+    if variant not in CV_VARIANTS:
+        raise ValueError("Versión de CV desconocida")
+    p = copy.deepcopy(profile)
+    from .workflow import DOMAINS, norm
+    words = DOMAINS.get(variant, ())
+    for exp in p.experiencia:
+        exp["bullets"] = sorted(exp.get("bullets", []), key=lambda b: -sum(w in norm(b) for w in words))
+    return optimize_profile(p)
