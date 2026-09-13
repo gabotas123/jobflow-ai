@@ -340,13 +340,13 @@ def parse_languages(sections: dict, text_low: str) -> dict:
     for key, (name, level) in items.items():
         for lname, canon in LANG_NAMES.items():
             if norm(lname) in key:
-                out[canon] = level or "Intermedio"
+                out[canon] = level or ""
                 break
     if not out:
         for lname, canon in LANG_NAMES.items():
             if norm(lname) in text_low:
                 m = re.search(re.escape(norm(lname)) + r"[^\n]{0,30}(basico|intermedio|avanzado|nativo)", text_low)
-                out[canon] = m.group(1).capitalize() if m else "Intermedio"
+                out[canon] = m.group(1).capitalize() if m else ""
     return out
 
 
@@ -397,12 +397,9 @@ def parse_cv(text: str, filename: str = "", nombre_hint: str = "") -> CandidateP
 
     # --- experiencia + logros fusionados ---
     exp_sec = sections.get("experiencia", "")
-    if not exp_sec:
-        exp_sec = "\n".join(l for l in text.splitlines()
-                            if _is_bullet(l.strip(), norm(l)))
+    # A missing experience section must not turn projects into employment.
     experiencia = _parse_experience(exp_sec)
-    if sections.get("logros"):
-        _merge_logros(experiencia, sections["logros"])
+    # Standalone achievements require attribution to an employer by the candidate.
 
     # --- habilidades / idiomas / educacion / proyectos ---
     skills = parse_skills(sections, text_low)
@@ -435,4 +432,6 @@ def parse_cv(text: str, filename: str = "", nombre_hint: str = "") -> CandidateP
         skills=skills, languages=languages,
         educacion=educacion, proyectos=proyectos,
         verificado=False, fuente_cv=filename or "CV subido",
+        pendientes=["Revisar cargos, fechas y habilidades extraídos del CV"] +
+                   (["Atribuir logros a la experiencia correcta: " + sections["logros"][:2000]] if sections.get("logros") else []),
     )

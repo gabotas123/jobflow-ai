@@ -24,6 +24,19 @@ def ensure_seed() -> None:
     init_db()
     db = SessionLocal()
     try:
+        for row in db.query(models.CandidateProfileRow).all():
+            data = dict(row.estructura or {})
+            if data.get("fuente_cv") == "Perfil verificado (base de conocimiento)":
+                data["verificado"] = False
+                data["fuente_cv"] = "Perfil anterior: revisión pendiente"
+                data["pendientes"] = ["Revisar datos heredados del perfil inicial"]
+                data["educacion"] = ["Bachiller en Economia - Universidad de Piura (UDEP)"]
+                data["proyectos"] = []
+                for exp in data.get("experiencia", []):
+                    exp["bullets"] = [b for b in exp.get("bullets", []) if not any(c.isdigit() for c in b)]
+                row.estructura = data
+                row.fuente_cv = data["fuente_cv"]
+        db.commit()
         if db.query(models.Usuario).count() == 0:
             user = models.Usuario(nombre=FULL_NAME, email=EMAIL, ubicacion=LOCATION)
             db.add(user)
@@ -88,7 +101,7 @@ def ensure_seed() -> None:
                 sugerencias=result["reescrituras"],
             ))
 
-            seed_mock_emails(db, user.id)
+            # Demo emails are not real inbox messages and are not seeded.
             db.commit()
     finally:
         db.close()

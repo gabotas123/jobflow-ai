@@ -1,0 +1,9 @@
+{
+  "name": "JobFlow AI — prueba privada",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm",
+  "forwardPorts": [8000],
+  "portsAttributes": {"8000": {"label": "Abrir JobFlow AI", "onAutoForward": "openBrowser"}},
+  "postCreateCommand": "python -m pip install -r requirements.txt && python -m playwright install --with-deps chromium",
+  "postStartCommand": "python scripts/start_codespace.py",
+  "remoteEnv": {"JOBFLOW_HEADLESS": "true"}
+}

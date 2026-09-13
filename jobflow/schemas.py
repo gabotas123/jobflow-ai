@@ -41,7 +41,9 @@ class FormRunRequest(BaseModel):
 
 
 class GenerateRequest(BaseModel):
+    target_id: Optional[int] = None
     profile_id: Optional[int] = None
+    variant: str = "maestro"
 
 
 class PuestoRequest(BaseModel):
@@ -75,6 +77,12 @@ class PostulacionRequest(BaseModel):
 
 
 class ProfileUpdateRequest(BaseModel):
+    experiencia: Optional[List[dict]] = None
+    educacion: Optional[List[str]] = None
+    languages: Optional[dict[str, str]] = None
+    proyectos: Optional[List[str]] = None
+    pendientes: Optional[List[str]] = None
+    skill_levels: Optional[List[tuple[str, str]]] = None
     """Campos editables del perfil de candidato (los parseados se corrigen aqui)."""
     nombre: Optional[str] = None
     email: Optional[str] = None
@@ -98,3 +106,36 @@ class EmailClassifyRequest(BaseModel):
     remitente: str = "info@hiringroom.com"
     asunto: str = "Cuestionario de la vacante de Analista de Cobranzas"
     cuerpo: str = "Gracias por postular. Complete el siguiente formulario para continuar el proceso."
+
+
+class JobImportRequest(BaseModel):
+    profile_id: Optional[int] = None
+    titulo: str = Field(min_length=2, max_length=250)
+    empresa: str = Field(min_length=2, max_length=250)
+    plataforma: str = Field(default="manual", max_length=40)
+    url: str = Field(default="", max_length=2000)
+    descripcion: str = Field(default="", max_length=40000)
+    ubicacion: str = Field(default="", max_length=250)
+    modalidad: str = Field(default="", max_length=100)
+    vigente: Optional[bool] = None
+    anos_obligatorios: Optional[float] = Field(default=None, ge=0, le=50)
+    meses_relevantes_confirmados: Optional[int] = Field(default=None, ge=0, le=600)
+    herramientas: List[str] = Field(default_factory=list, max_length=50)
+    formacion: str = Field(default="", max_length=250)
+    salario_max: Optional[float] = Field(default=None, ge=0)
+    salario_min_aceptado: Optional[float] = Field(default=None, ge=0)
+    fecha_publicacion: Optional[str] = None
+
+
+class ApplicationUpdateRequest(BaseModel):
+    cv_version_id: Optional[int] = None
+    estado: str
+    evidencia: str = Field(default="", max_length=5000)
+    tipo_evidencia: str = ""
+    nota: str = Field(default="", max_length=5000)
+
+
+class EmailImportRequest(BaseModel):
+    remitente: str = Field(min_length=3, max_length=250)
+    asunto: str = Field(min_length=1, max_length=500)
+    cuerpo: str = Field(min_length=1, max_length=40000)

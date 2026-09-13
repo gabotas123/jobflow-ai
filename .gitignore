@@ -25,3 +25,9 @@ Desktop.ini
 *.log
 
 pip_install.log
+
+.pytest_cache/
+*.db-wal
+*.db-shm
+*.bundle
+*.zip

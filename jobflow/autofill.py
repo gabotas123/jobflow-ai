@@ -82,7 +82,7 @@ def detect_from_dom(page) -> List[dict]:
     for el in page.query_selector_all("input, textarea, select"):
         info = el.evaluate(
             """el => ({ id: el.id || '', name: el.name || '',
-                        type: el.type || (el.tagName === 'SELECT' ? 'select' : 'text'),
+                        type: el.tagName === 'SELECT' ? 'select' : (el.type || 'text'),
                         placeholder: el.placeholder || '' })"""
         )
         label_el = page.query_selector(f"label[for='{info['id']}']") if info.get("id") else None
@@ -103,12 +103,20 @@ def map_fields(fields: List[dict]) -> List[dict]:
     out = []
     for f in fields:
         label = norm(f.get("label", ""))
+        blocked = any(k in label for k in (
+            "captcha", "otp", "codigo de autenticacion", "contrasena", "password",
+            "psicometr", "prueba tecnica", "evaluacion tecnica", "entrevista", "video",
+            "dni", "documento de identidad", "fecha de nacimiento", "salud", "discapacidad",
+            "antecedentes", "declaracion jurada", "estado civil", "orientacion sexual"))
         canonical = None
         for keys, canon in FIELD_RULES:
             if any(k in label for k in keys):
                 canonical = canon
                 break
+        if blocked:
+            canonical = None
         out.append({
+            "bloqueada": blocked,
             "field_id": f.get("id", ""),
             "label": f.get("label", ""),
             "type": f.get("type", ""),
@@ -133,12 +141,13 @@ def generate_answers(mapping: List[dict], profile: "CandidateProfile", vacante_t
             out.append({"field_id": m["field_id"], "label": m["label"],
                         "canonical": canon, "answer": item["answer"],
                         "fuente": item.get("fuente", ""), "confianza": item.get("confianza", 1.0),
-                        "necesita_input": False})
+                        "necesita_input": bool(item.get("needs_input", True)),
+                        "bloqueada": m.get("bloqueada", False)})
         else:
             out.append({"field_id": m["field_id"], "label": m["label"],
                         "canonical": canon, "answer": "",
                         "fuente": "", "confianza": 0.0,
-                        "necesita_input": True,
+                        "necesita_input": True, "bloqueada": m.get("bloqueada", False),
                         "nota": "Campo sin dato verificable: requiere intervencion del usuario."})
     return out
 
@@ -166,30 +175,45 @@ def approve(db: Session, form_id: int, edits: Optional[List[dict]] = None) -> Op
     d = db.get(FormularioResuelto, form_id)
     if not d:
         return None
-    answers = list(d.respuestas_generadas or [])
-    if edits:
-        by_field = {e.get("field_id"): e.get("answer", "") for e in edits}
-        for a in answers:
-            if a.get("field_id") in by_field:
-                a["answer"] = by_field[a["field_id"]]
-                a["editado_por_usuario"] = True
+    if d.enviado:
+        raise ValueError("La demostración ya está completada; prepara otro borrador para editar.")
+    answers = [dict(a) for a in (d.respuestas_generadas or [])]
+    by_field = {e.get("field_id"): str(e.get("answer", "")).strip() for e in (edits or [])}
+    for a in answers:
+        if a.get("bloqueada"):
+            raise ValueError("Hay una pregunta sensible o evaluación: resuélvela personalmente en el portal.")
+        if a.get("field_id") in by_field:
+            a["answer"] = by_field[a["field_id"]]
+            a["editado_por_usuario"] = True
+            a["necesita_input"] = False
+            a["fuente"] = "Revisado por el candidato en este formulario"
+        if not str(a.get("answer", "")).strip() or a.get("necesita_input"):
+            raise ValueError("Completa y revisa todas las respuestas antes de aprobar.")
     d.respuestas_generadas = answers
     d.aprobado_por_usuario = True
     d.fecha_aprobacion = datetime.utcnow()
+    if d.postulacion_id:
+        from .workflow import AuditEvent
+        application = db.get(models.Postulacion, d.postulacion_id)
+        if application:
+            application.respuestas_formulario = answers
+        db.add(AuditEvent(application_id=d.postulacion_id, action="respuestas_aprobadas",
+                          payload={"form_id": d.id, "respuestas": answers}))
     db.commit()
     db.refresh(d)
     return d
 
 
 def submit(db: Session, form_id: int) -> Optional[FormularioResuelto]:
-    """Ejecutor de envio. Para el formulario de prueba, marca como enviado y
-    crea una Postulacion. Para plataformas reales usaria Playwright (adapters)."""
     d = db.get(FormularioResuelto, form_id)
-    if not d:
+    if not d or not d.aprobado_por_usuario:
         return None
-    if not d.aprobado_por_usuario:
-        return None  # regla de oro: nunca enviar sin aprobacion humana
-    d.enviado = True
+    if d.plataforma != "test":
+        raise ValueError("Envío al portal no conectado. Copia las respuestas y postula en el portal original.")
+    if any(a.get("bloqueada") or a.get("necesita_input") or not a.get("answer")
+           for a in (d.respuestas_generadas or [])):
+        raise ValueError("El formulario contiene respuestas pendientes.")
+    d.enviado = True  # Completion of the explicitly labelled local demonstration only.
     db.commit()
     db.refresh(d)
     return d

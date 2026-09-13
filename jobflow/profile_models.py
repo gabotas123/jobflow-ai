@@ -33,6 +33,8 @@ class CandidateProfile:
     languages: Dict[str, str] = field(default_factory=dict)  # nombre -> nivel
     educacion: List[str] = field(default_factory=list)
     proyectos: List[str] = field(default_factory=list)
+    hechos_confirmados: Dict[str, str] = field(default_factory=dict)
+    pendientes: List[str] = field(default_factory=list)
     verificado: bool = False             # True: perfil canónico con respuestas acordadas
     fuente_cv: str = ""                  # archivo o "manual"
     notas: str = ""

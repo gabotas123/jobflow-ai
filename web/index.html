@@ -1,205 +1,64 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>JobFlow AI · Copiloto de Búsqueda Laboral</title>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#3459d6"><title>JobFlow · Tu próxima oportunidad</title>
 <link rel="stylesheet" href="/assets/styles.css">
 </head>
 <body>
-<header class="topbar">
-  <div class="brand">
-    <h1>JobFlow <span>AI</span></h1>
-    <small>Copiloto IA de búsqueda laboral · Proyecto Innova ULIMA</small>
-  </div>
-  <nav class="tabs">
-    <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
-    <button class="tab-btn" data-tab="perfiles">Perfiles & CV</button>
-    <button class="tab-btn" data-tab="analisis">Análisis CV</button>
-    <button class="tab-btn" data-tab="autofill">Autofill</button>
-    <button class="tab-btn" data-tab="empleos">Empleos</button>
-    <button class="tab-btn" data-tab="postulaciones">Postulaciones</button>
-    <button class="tab-btn" data-tab="correo">Correo</button>
-  </nav>
-</header>
-
-<main>
-  <!-- DASHBOARD -->
-  <section id="tab-dashboard" class="tab active">
-    <div class="hero card">
-      <span class="pill">Copiloto de IA para tu búsqueda laboral</span>
-      <h1>Tu <span class="grad">copiloto de IA</span> para todo el proceso de búsqueda de empleo</h1>
-      <p>Sube tu CV, conoce tu afinidad con las vacantes (sistema XYZ de RRHH), genera un CV optimizado,
-        autocompleta formularios en <b>Bumeran, Computrabajo y LinkedIn</b> y controla tu correo y tus postulaciones.</p>
-      <div class="hero-cta">
-        <button class="btn primary big" onclick="goTab('perfiles')">Subir mi CV — Gratis</button>
-        <button class="btn big" onclick="goTab('analisis')">Ver mi análisis de afinidad</button>
-        <button class="btn big" onclick="goTab('autofill')">Autocompletar formularios</button>
-      </div>
-      <div class="stats">
-        <div><b>30/30/25/15</b><small>Pesos del sistema XYZ</small></div>
-        <div><b>4</b><small>Componentes del scoring</small></div>
-        <div><b>3 + correo</b><small>Plataformas gestionadas</small></div>
-        <div><b>0</b><small>Datos inventados (honestidad)</small></div>
-      </div>
-      <div class="logos"><span>Bumeran</span>·<span>Computrabajo</span>·<span>LinkedIn</span>·<span>Gmail</span>·<span>PDF/DOCX</span></div>
-    </div>
-
-    <div class="card">
-      <h2>¿Cómo funciona?</h2>
-      <div class="steps3">
-        <div class="step"><b>1</b><h3>Abre el puesto objetivo</h3><p>Defines el cargo, requisitos y rango salarial, o pegas la oferta.</p></div>
-        <div class="step"><b>2</b><h3>Comprueba tu afinidad al instante</h3><p>El motor XYZ puntúa keywords, experiencia, competencias STAR y formato ATS.</p></div>
-        <div class="step"><b>3</b><h3>Genera tu CV y solicita</h3><p>Recibe el CV corregido, respuestas y el autofill de formularios. Tú apruebas antes de enviar.</p></div>
-      </div>
-    </div>
-
-    <div class="card" id="profile-card"><p>Cargando perfil…</p></div>
-    <div class="kpi-row" id="kpi-row"></div>
-    <div class="grid2">
-      <div class="card">
-        <h2>Motores del sistema</h2>
-        <div id="adapters"></div>
-      </div>
-      <div class="card">
-        <h2>Funciones principales</h2>
-        <div class="features">
-          <div class="feat">📄 <b>Optimización de CV</b><span>Correcciones aplicadas y CV descargable</span></div>
-          <div class="feat">📊 <b>Análisis de afinidad</b><span>Score XYZ + brechas priorizadas</span></div>
-          <div class="feat">⚡ <b>Autocompletado</b><span>Bumeran y Computrabajo (con aprobación)</span></div>
-          <div class="feat">💬 <b>Respuestas con IA</b><span>Banco de respuestas realistas</span></div>
-          <div class="feat">🤝 <b>Copiloto LinkedIn</b><span>Respuestas para pegar (sin bots)</span></div>
-          <div class="feat">📮 <b>Seguimiento de correo</b><span>Clasificación de solicitudes</span></div>
-          <div class="feat">🗂 <b>Tracker</b><span>Pipeline de postulaciones</span></div>
-        </div>
-      </div>
-    </div>
-    <div class="card">
-      <h2>🔗 Conexiones (linkear plataformas)</h2>
-      <p class="muted">Marca las plataformas que usas. La app adapta automáticamente el modo
-        (autofill en Bumeran/Computrabajo, copiloto en LinkedIn, búsqueda en Indeed) y el
-        conector de correo.</p>
-      <div id="connections" class="badges" style="justify-content:flex-start"><p class="muted">Cargando…</p></div>
-    </div>
-  </section>
-
-  <!-- PERFILES -->
-  <section id="tab-perfiles" class="tab">
-    <div class="card">
-      <h2>Subir CV de un candidato</h2>
-      <p class="muted">PDF, DOCX o TXT. Se parsea automáticamente (contacto, experiencia, habilidades, idiomas, formación)
-        y queda listo para el análisis XYZ, las respuestas y el autofill. Los datos que no se detecten se marcan para confirmar (nunca se inventan).</p>
-      <div class="row">
-        <label>Nombre (opcional, si el CV no lo trae)
-          <input id="upload-name" placeholder="Ej. María Pérez">
-        </label>
-        <label class="filelabel">Archivo CV
-          <input type="file" id="upload-file" accept=".pdf,.docx,.txt">
-        </label>
-        <button class="btn primary" onclick="uploadCV()">Subir y analizar CV</button>
-      </div>
-      <div id="upload-status"></div>
-    </div>
-    <div class="card">
-      <h2>Perfiles disponibles</h2>
-      <div id="profiles-list"></div>
-    </div>
-    <div id="profile-detail"></div>
-    <div id="cv-result"></div>
-  </section>
-
-  <!-- ANÁLISIS -->
-  <section id="tab-analisis" class="tab">
-    <div class="card">
-      <h2>Análisis de CV vs. puesto objetivo</h2>
-      <div class="row">
-        <label>Puesto objetivo (activo)
-          <select id="role-select"></select>
-        </label>
-        <label>Seniority
-          <select id="pt-seniority">
-            <option>asistente</option><option>analista_junior</option><option>analista</option>
-          </select>
-        </label>
-        <label>Modalidad
-          <select id="pt-modality">
-            <option>Presencial o hibrido</option><option>Presencial</option><option>Hibrido</option><option>Remoto</option>
-          </select>
-        </label>
-        <label>Rango salarial
-          <select id="pt-salario"></select>
-        </label>
-        <button class="btn primary" onclick="runAnalysis()">Analizar CV</button>
-      </div>
-      <div class="row" style="margin-top:10px">
-        <label>Nuevo puesto objetivo (título)
-          <input id="pt-titulo" placeholder="Ej. Analista de Tesorería">
-        </label>
-        <label>Requisitos obligatorios (coma)
-          <input id="pt-must" value="Excel, cuentas por cobrar, cobranzas, aging, Power BI, SQL">
-        </label>
-        <label>Nice-to-have (coma)
-          <input id="pt-nice" value="SAP, facturación, Python">
-        </label>
-        <button class="btn" onclick="createPuesto()">＋ Guardar puesto (activo)</button>
-      </div>
-      <p class="muted" id="pt-info"></p>
-    </div>
-    <div id="analysis-result"></div>
-  </section>
-
-  <!-- AUTOFILL -->
-  <section id="tab-autofill" class="tab">
-    <div class="card">
-      <h2>Motor de autofill (pipeline agnóstico de plataforma)</h2>
-      <p class="muted">Detector → Mapeador semántico → Generador de respuestas → <b>Revisión humana</b> → Ejecutor.
-        La postulación <b>nunca se envía sin tu aprobación</b>. En LinkedIn solo actúa como copiloto (prohibido automatizar el envío).</p>
-      <div id="adapter-badges" class="badges"></div>
-      <button class="btn primary" onclick="runFormPipeline()">▶ Ejecutar pipeline (formulario de prueba)</button>
-    </div>
-    <div id="form-result"></div>
-  </section>
-
-  <!-- EMPLEOS -->
-  <section id="tab-empleos" class="tab">
-    <div class="card">
-      <h2>Búsqueda de empleo según el perfil analizado</h2>
-      <p class="muted">Genera la consulta a partir del perfil activo (cargo, habilidades y dominio) y busca
-        en <b>Bumeran, Computrabajo, Indeed y LinkedIn</b>. Los resultados provienen de los sitios reales.
-        Si una plataforma bloquea la captura (anti-bot/inicio de sesión), se te da el enlace directo para
-        abrirla en tu navegador — la app nunca inventa vacantes.</p>
-      <button class="btn primary" onclick="searchJobs()">🔎 Buscar empleos para este perfil</button>
-      <div id="job-status" style="margin-top:10px"></div>
-    </div>
-    <div id="job-results"></div>
-  </section>
-
-  <!-- POSTULACIONES -->
-  <section id="tab-postulaciones" class="tab">
-    <div class="card">
-      <h2>Tracker de postulaciones <span class="muted">· conectado a Empleos + correo</span></h2>
-      <table id="app-table">
-        <thead><tr><th>Vacante</th><th>Plataforma</th><th>Estado</th><th>Fecha</th><th>Correo</th><th>Resp.</th></tr></thead>
-        <tbody></tbody>
-      </table>
-      <p class="muted">Las postulaciones creadas desde <b>Empleos</b> generan automáticamente un
-        correo de seguimiento (simulado sin SMTP) y quedan enlazadas aquí.</p>
-    </div>
-  </section>
-
-  <!-- CORREO -->
-  <section id="tab-correo" class="tab">
-    <div class="card">
-      <h2>Monitoreo de correo</h2>
-      <p class="muted">En producción: conexión OAuth2 a Gmail (scopes mínimos, nunca contraseña), clasificación con IA y
-        resolución de cuestionarios con el mismo pipeline de autofill. Aquí se muestra la bandeja simulada del MVP.</p>
-      <button class="btn" onclick="loadEmails()">Actualizar bandeja</button>
-    </div>
-    <div id="email-list"></div>
-  </section>
+<a class="skip" href="#content">Saltar al contenido</a>
+<aside class="sidebar">
+<a class="brand" href="#today"><span class="brand-mark">J</span>JobFlow<span class="brand-ai">AI</span></a>
+<p class="nav-caption">TU PRÓXIMO PASO</p>
+<nav aria-label="Navegación principal" id="main-nav">
+<a href="#today" data-page="today"><span aria-hidden="true">◷</span>Hoy</a>
+<a href="#jobs" data-page="jobs"><span aria-hidden="true">⌕</span>Oportunidades</a>
+<a href="#applications" data-page="applications"><span aria-hidden="true">▤</span>Postulaciones</a>
+<a href="#agenda" data-page="agenda"><span aria-hidden="true">▦</span>Agenda</a>
+<a href="#profile" data-page="profile"><span aria-hidden="true">◎</span>Mi perfil</a>
+</nav>
+<div class="sidebar-bottom"><a href="#connections">Conexiones y preferencias</a><p>Tu experiencia. Tu siguiente oportunidad.</p></div>
+</aside>
+<div class="shell">
+<header class="topbar"><span class="workspace-label">Mi espacio de búsqueda</span><div class="top-actions"><label class="profile-picker">Perfil<select id="profile-picker" aria-label="Perfil activo"></select></label><button class="avatar" id="avatar" aria-label="Abrir mi perfil">J</button></div></header>
+<main id="content" tabindex="-1">
+<div id="notice" role="status" aria-live="polite" hidden></div>
+<section data-view="today">
+<div class="page-heading"><div><p class="eyebrow" id="today-date">TU BÚSQUEDA, EN ORDEN</p><h1 id="greeting">Tu próxima oportunidad empieza aquí.</h1><p id="today-subtitle">Revisa tu perfil y elige hacia dónde quieres avanzar.</p></div><a class="button primary" href="#jobs">Explorar oportunidades</a></div>
+<div class="onboarding" id="onboarding"></div>
+<div class="stats" id="today-stats"></div>
+<div class="home-grid"><article class="panel"><div class="section-heading"><h2>Necesita tu atención</h2><a href="#applications">Ver todas</a></div><div id="today-pending"></div></article><article class="panel agenda-preview"><p class="eyebrow">TU AGENDA</p><h2>Lo que viene</h2><div id="today-agenda"></div><a class="button secondary" href="#agenda">Abrir agenda</a></article></div>
+<article class="panel"><div class="section-heading"><h2>Avances de hoy</h2><a href="#connections">Configurar resumen diario</a></div><div id="today-activity"></div></article>
+</section>
+<section data-view="profile" hidden>
+<div class="page-heading"><div><p class="eyebrow">PRIMERO, CONOZCÁMONOS</p><h1>Tu experiencia, bien contada.</h1><p>Confirma tu CV y dinos a qué puestos te gustaría postular.</p></div></div>
+<div class="steps"><span>1 · Carga tu CV</span><span>2 · Revisa los datos</span><span>3 · Elige tus objetivos</span></div>
+<article class="panel upload-panel"><div><h2>Comienza con tu CV</h2><p>PDF, DOCX o TXT · hasta 10 MB. También puedes revisar el perfil existente.</p></div><form id="upload-form"><label class="file-input">Seleccionar archivo<input name="file" type="file" required accept=".pdf,.docx,.txt"></label><button class="button primary">Extraer datos del CV</button></form></article>
+<article class="panel"><div class="section-heading"><h2>Revisa los datos extraídos</h2><span id="profile-status" class="badge">Por revisar</span></div><p>Corrige los datos y las funciones. Confirma únicamente información que puedas sustentar.</p><form id="profile-form"><div id="profile-fields" class="form-grid"></div><div id="experience-fields"></div><div class="actions"><button class="button secondary" type="button" id="add-experience">Añadir experiencia</button><button class="button primary">Guardar correcciones</button></div></form><div class="confirm-box"><label class="check"><input type="checkbox" id="confirm-check">He revisado los datos guardados y confirmo que son verdaderos.</label><button class="button primary" id="confirm-profile">Confirmar datos guardados</button><p>Tu confirmación queda registrada. Los cambios posteriores requieren una nueva revisión.</p></div></article>
+<article class="panel" id="goals-panel"><h2>¿A qué puestos quieres postular?</h2><p>Ordénalos por prioridad. Puedes elegir un rumbo distinto a tu último empleo.</p><form id="goals-form"><label>Puestos deseados, uno por línea<textarea name="titles" rows="3" required placeholder="Analista de cobranzas&#10;Analista junior de control de gestión"></textarea></label><div class="form-grid"><label>Ubicación<input name="location" required placeholder="Lima"></label><label>Modalidad<select name="modality"><option>Presencial o híbrido</option><option>Presencial</option><option>Híbrido</option><option>Remoto</option></select></label><label>Nivel<select name="seniority"><option value="analista_junior">Analista junior</option><option value="asistente">Asistente</option><option value="analista">Analista</option></select></label><label>Expectativa salarial<input name="salary" placeholder="S/2,500–2,800"></label></div><label>Restricciones para revisar en cada oferta<textarea name="restrictions" rows="2" placeholder="Por ejemplo: sin turnos nocturnos"></textarea></label><button class="button primary">Guardar objetivos y continuar</button></form></article>
+</section>
+<section data-view="jobs" hidden>
+<div class="page-heading"><div><p class="eyebrow">ENCUENTRA TU SIGUIENTE PASO</p><h1>Oportunidades para ti.</h1><p>Busca según tus objetivos y revisa por qué encaja cada vacante.</p></div><button class="button secondary" id="toggle-import">Añadir una oferta</button></div>
+<article class="panel"><form id="search-form" class="search-row"><label>Puesto objetivo<select id="search-target" required></select></label><button class="button primary">Buscar oportunidades</button></form><p id="search-preferences"></p><div id="search-status" aria-live="polite"></div></article>
+<article class="panel" id="import-panel" hidden><h2>Añadir una oferta real</h2><form id="import-form"><div class="form-grid"><label>Puesto<input name="titulo" required></label><label>Empresa<input name="empresa" required></label><label>Enlace del aviso<input name="url" type="url"></label><label>Portal<select name="plataforma"><option>manual</option><option>bumeran</option><option>computrabajo</option><option>linkedin</option><option>hiringroom</option><option>pandape</option></select></label><label>Ubicación<input name="ubicacion"></label><label>Modalidad<input name="modalidad"></label></div><label>Descripción completa<textarea name="descripcion" rows="6" required></textarea></label><details><summary>Requisitos y condiciones</summary><div class="form-grid"><label>Años obligatorios<input name="anos_obligatorios" type="number" min="0" max="50" step="0.5"></label><label>Meses relevantes confirmados<input name="meses_relevantes_confirmados" type="number" min="0" max="600"></label><label>Herramientas requeridas, separadas por comas<input name="herramientas"></label><label>Formación requerida<input name="formacion"></label><label>Salario máximo publicado (S/)<input name="salario_max" type="number" min="0"></label><label>Tu mínimo aceptado (S/)<input name="salario_min_aceptado" type="number" min="0"></label><label>Publicada el<input name="fecha_publicacion" type="date"></label><label>Vigencia<select name="vigente"><option value="">Sin comprobar</option><option value="true">Comprobé que acepta postulaciones</option><option value="false">Vencida</option></select></label></div></details><button class="button primary">Evaluar y guardar oportunidad</button></form></article><div id="job-results"></div>
+</section>
+<section data-view="applications" hidden>
+<div class="page-heading"><div><p class="eyebrow">CADA PASO CUENTA</p><h1>Tus postulaciones.</h1><p>CV, respuestas y seguimiento, juntos en cada oportunidad.</p></div><a class="button secondary" id="export-tracker">Exportar historial</a></div>
+<div class="filter-row"><label>Filtrar por estado<select id="application-filter"><option value="all">Todas</option><option value="descubierta">Guardadas</option><option value="preparada">Preparadas</option><option value="postulada">Postuladas</option><option value="entrevista">Entrevistas</option><option value="blocked">Requieren revisión</option></select></label></div><div id="applications-list" class="job-grid"></div>
+</section>
+<section data-view="detail" hidden><button class="text-button" id="back-applications">← Todas las postulaciones</button><div id="application-heading"></div><nav class="detail-tabs" aria-label="Detalles de la candidatura" id="detail-nav"><button data-detail="vacancy">Vacante</button><button data-detail="cv">Mi CV</button><button data-detail="answers">Respuestas</button><button data-detail="recruiter">Reclutador</button><button data-detail="history">Historial</button></nav><div id="detail-content"></div></section>
+<section data-view="agenda" hidden>
+<div class="page-heading"><div><p class="eyebrow">LLEGA CON TIEMPO</p><h1>Tu agenda.</h1><p>Entrevistas, evaluaciones y próximos pasos.</p></div><a class="button secondary" href="#connections">Conectar Google Calendar</a></div>
+<div class="home-grid"><article class="panel"><h2 id="event-form-title">Añadir un evento</h2><form id="event-form"><input name="id" type="hidden"><label>Título<input name="title" required placeholder="Entrevista de finanzas"></label><label>Candidatura<select name="application_id" id="event-application"><option value="">Sin asociar</option></select></label><div class="form-grid"><label>Inicio<input name="start" type="datetime-local" required></label><label>Fin<input name="end" type="datetime-local" required></label><label>Zona horaria<select name="timezone"><option value="America/Lima">Lima (UTC−05:00)</option><option value="UTC">UTC</option></select></label><label>Tipo<select name="kind"><option value="entrevista">Entrevista</option><option value="evaluacion">Evaluación</option><option value="seguimiento">Seguimiento</option></select></label></div><label>Lugar o enlace<input name="location"></label><label>Fuente o confirmación<textarea name="source" required rows="2" placeholder="Correo del reclutador o fecha acordada"></textarea></label><label class="check"><input name="confirmed" type="checkbox">La fecha y hora están confirmadas.</label><button class="button primary">Guardar evento</button><button class="button secondary" id="cancel-event" type="button">Limpiar</button></form></article><div id="events-list"></div></div>
+</section>
+<section data-view="connections" hidden>
+<div class="page-heading"><div><p class="eyebrow">A TU RITMO</p><h1>Conexiones y preferencias.</h1><p>Elige qué puede hacer JobFlow y cuándo quieres recibir tus avances.</p></div></div>
+<div id="google-connections" class="connection-grid"></div>
+<article class="panel"><h2>Tu revisión al final del día</h2><form id="settings-form"><div class="form-grid"><label>Hora del resumen<input name="digest_time" type="time" required></label><label>Zona horaria<select name="timezone"><option value="America/Lima">Lima</option><option value="UTC">UTC</option></select></label><label>Apariencia<select name="theme"><option value="system">Según mi dispositivo</option><option value="light">Clara</option><option value="dark">Oscura</option></select></label></div><label class="check"><input name="digest_enabled" type="checkbox">Enviar mi resumen diario a la cuenta Gmail conectada.</label><label class="check"><input name="gmail_sync_enabled" type="checkbox">Revisar periódicamente correos de selección.</label><label class="check"><input name="calendar_auto" type="checkbox">Sincronizar automáticamente los eventos que confirme.</label><p id="scheduler-note"></p><button class="button primary">Guardar preferencias</button></form><button class="button secondary" id="send-digest">Enviar resumen de hoy a mi Gmail</button><p>Un resumen por día. Los envíos sin confirmación quedan pendientes y no se repiten automáticamente.</p></article>
+<article class="panel"><div class="section-heading"><h2>Correos de selección</h2><button class="button secondary" id="sync-gmail">Revisar Gmail ahora</button></div><p>Solo se buscan correos recientes relacionados con selección. Los enlaces y las fechas requieren revisión.</p><div id="mail-list"></div><details><summary>Pegar un correo recibido</summary><form id="email-form"><label>Remitente<input name="remitente" type="email" required></label><label>Asunto<input name="asunto" required></label><label>Contenido<textarea name="cuerpo" rows="4" required></textarea></label><button class="button secondary">Clasificar y guardar</button></form><div id="manual-mails"></div></details></article>
+</section>
 </main>
-
-<footer class="footer">JobFlow AI · Documento técnico: sistema XYZ (30/30/25/15) + autofill + correo · Demo MVP sustentación</footer>
+<footer>JobFlow · Preparación y seguimiento asistidos. Los envíos a portales aún se realizan desde la oferta original.</footer>
+</div>
 <script src="/assets/app.js"></script>
-</body>
-</html>
+</body></html>

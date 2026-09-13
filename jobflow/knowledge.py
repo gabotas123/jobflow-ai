@@ -8,8 +8,8 @@ from __future__ import annotations
 from .profile_models import CandidateProfile
 
 FULL_NAME = "Gabriel Alberto Gutierrez Ayala"
-EMAIL = "gabrielgutierrezayala20@gmail.com"
-PHONE = "+51 947 272 093"
+EMAIL = ""
+PHONE = ""
 LOCATION = "Magdalena del Mar, Lima, Peru"
 LINKEDIN = "https://www.linkedin.com/in/gabriel-gutierrez-ayala-641b5421a/"
 EDUCATION = "Bachiller en Economia - Universidad de Piura (UDEP), 2025"
@@ -33,9 +33,8 @@ EXPERIENCIA = [
         "cargo": "Practicante Profesional de Finanzas - Cobranzas LATAM",
         "inicio": "Jun. 2025", "fin": "Jun. 2026", "ubicacion": "Lima, Peru",
         "bullets": [
-            "Contribui a reducir aproximadamente el 20 % de la cartera asignada mediante "
-            "segmentacion, seguimiento de compromisos y regularizacion.",
-            "Segui ~15 cuentas corporativas de Latinoamerica con volumen mensual de USD 300,000.",
+            "Realice seguimiento de compromisos de pago y regularizacion de cartera.",
+            "Realice seguimiento de cuentas corporativas de Latinoamerica.",
             "Analice aging, saldos, vencimientos, pagos y partidas pendientes.",
             "Priorice cuentas vencidas por segmentacion (moneda, broker, antiguedad).",
             "Regularice partidas e inconsistencias coordinando con brokers y equipos regionales.",
@@ -73,17 +72,8 @@ SKILLS = [
     ("SAP", "usuario"), ("Stata", "intermedio"),
 ]
 LANGUAGES = {"ingles": "Avanzado", "japones": "Intermedio", "portugues": "Basico"}
-EDUCACION = [
-    "Bachiller en Economia - Universidad de Piura (UDEP), 2025 (tercio superior)",
-    "Power BI avanzado - PUCP",
-    "Python y Stata intermedio - UDEP",
-    "LISA Institute: analisis de inteligencia, informes y sesgos cognitivos",
-]
-PROYECTOS = [
-    "Scoring de prioridad de cobranza B2B (Python + SQL; datos simulados)",
-    "Dashboard de aging multimoneda (Power BI, DAX, Power Query)",
-    "Forecast de recaudo a ocho semanas (Excel + Python, escenarios base/estres)",
-]
+EDUCACION = ["Bachiller en Economia - Universidad de Piura (UDEP)"]
+PROYECTOS = []  # Agregar solo proyectos confirmados por el candidato.
 
 SALARY_RANGES = {
     "asistente": "S/2300 - S/2500",
@@ -165,6 +155,7 @@ def build_gabriel() -> CandidateProfile:
         languages=LANGUAGES,
         educacion=EDUCACION,
         proyectos=PROYECTOS,
-        verificado=True,
-        fuente_cv="Perfil verificado (base de conocimiento)",
+        verificado=False,
+        pendientes=["Confirmar nivel de inglés", "Verificar curso LISA: nombre, institución, fecha y finalización", "Validar cargos formales y logros cuantificados"],
+        fuente_cv="Contexto del candidato; pendiente de revisión",
     )

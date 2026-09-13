@@ -1,3 +1,42 @@
+# JobFlow AI · versión 0.5
+
+Nuevo espacio de búsqueda con perfil confirmado, objetivos explícitos, CV por candidatura, agenda y conexiones Google configurables. Lee [CAMBIOS_V05.md](CAMBIOS_V05.md) para instalar y conocer el alcance real.
+
+# JobFlow AI 0.4 — copiloto asistido
+
+**Estado actual:** carga y generación de CV, evaluación de ofertas pegadas, preparación revisada de respuestas, seguimiento con evidencia y clasificación manual de correos. El envío a ATS y la lectura automática de correo NO están implementados.
+
+Lee [CAMBIOS_V04.md](CAMBIOS_V04.md) para conocer los cambios, pruebas y límites de esta versión.
+
+## Probar desde iPhone
+
+Una vez subida esta versión a GitHub: **Code → Codespaces → Create codespace**. La configuración incluida instala y arranca JobFlow automáticamente. Abre el puerto **8000** desde **Ports**, con visibilidad **Private**. La preparación inicial requiere unos minutos. El entorno debe permanecer activo mientras usas la aplicación. Detenerlo al terminar evita consumo innecesario de la cuota de Codespaces.
+
+## Ejecutar localmente
+
+```bash
+python -m venv .venv
+# Activa el entorno virtual según tu sistema operativo.
+python -m pip install -r requirements.txt
+python -m playwright install --with-deps chromium
+python -m uvicorn jobflow.main:app --host 127.0.0.1 --port 8000
+```
+
+## Pruebas
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m pytest -q
+```
+
+## Despliegue privado de un propietario
+
+Se incluye un Dockerfile y una configuración Render con disco persistente de pago. Antes de crear recursos, revisar el coste. En despliegues accesibles por internet usar HTTPS del proveedor, `JOBFLOW_REQUIRE_AUTH=true` y un secreto `JOBFLOW_ACCESS_PASSWORD`. El usuario de acceso es `jobflow`. No guardar secretos en Git.
+
+---
+
+<details><summary>Documentación histórica de la versión 0.3 (puede describir demos o funciones pendientes)</summary>
+
 # JobFlow AI · Copiloto IA de Búsqueda Laboral
 
 > 🔗 **Colaboración con Git/GitHub** — abajo tienes cómo compartir el proyecto
@@ -157,3 +196,5 @@ JobFlowAI/
 
 Con `LLM_PROVIDER=deepseek` (y API key en `.env`) el motor usa el LLM para refinar
 clasificaciones y textos. **Sin API key la app funciona con el motor determinístico**.
+
+</details>

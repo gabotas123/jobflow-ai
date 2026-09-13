@@ -37,4 +37,6 @@ def get_db():
 
 def init_db() -> None:
     from . import models  # noqa: F401  (registra declaracion)
+    from . import workflow  # additive audit and application-detail tables
+    from . import career, google_integration  # additive v0.5 tables
     models.Base.metadata.create_all(bind=engine)

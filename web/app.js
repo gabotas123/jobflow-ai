@@ -1,472 +1,70 @@
-/* JobFlow AI - logica de la SPA (multi-perfil) */
-const api = async (path, opts = {}) => {
-  const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
-  if (!res.ok) throw new Error((await res.text()).slice(0, 300));
-  return res.json();
-};
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
-  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-
-const SALARY_OPTIONS = ['S/1400 - S/1800', 'S/1800 - S/2300', 'S/2300 - S/2500',
-  'S/2500 - S/2800', 'S/2800 - S/3200', 'S/3200 - S/4000', 'S/4000+', '(por definir)'];
-
-let profiles = [];
-let activeId = null;
-let formState = null;
-let puestosCache = [];
-let activePuestoId = null;
-
-document.querySelectorAll('.tab-btn').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
-    document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
-  });
-});
-
-function goTab(name) {
-  const btn = document.querySelector(`.tab-btn[data-tab="${name}"]`);
-  if (btn) btn.click();
-}
-
-function salaryOptions(selected) {
-  const opts = new Set(SALARY_OPTIONS);
-  if (selected && !opts.has(selected)) opts.add(selected);
-  return `<option value="">— elegir rango —</option>` + [...opts].map((s) =>
-    `<option ${s === selected ? 'selected' : ''} value="${esc(s)}">${esc(s)}</option>`).join('');
-}
-
-/* ---------------- Perfiles ---------------- */
-async function loadProfiles() {
-  profiles = await api('/api/profiles');
-  const saved = Number(localStorage.getItem('jobflow_active_profile'));
-  if (profiles.some((p) => p.id === saved)) activeId = saved;
-  else activeId = profiles.length ? profiles[0].id : null;
-  renderProfileList();
-  if (activeId) { loadDashboard(); loadProfileDetail(activeId); loadPuestos(activeId); }
-}
-
-function renderProfileList() {
-  document.getElementById('profiles-list').innerHTML = (profiles || []).map((p) => `
-    <div class="profile-card ${p.id === activeId ? 'active' : ''}">
-      <b>${esc(p.nombre)}</b>
-      <span class="profile-meta">${esc(p.fuente_cv)} ${p.verificado ? '· <span class="badge ok">VERIFICADO</span>' : ''}</span>
-      <span style="flex:1"></span>
-      <button class="btn ${p.id === activeId ? 'primary' : ''}" onclick="selectProfile(${p.id})">Usar</button>
-      <button class="btn" onclick="loadProfileDetail(${p.id})">Detalle</button>
-    </div>`).join('') || '<p class="muted">Sin perfiles. Sube un CV en la sección superior.</p>';
-}
-
-function selectProfile(id) {
-  activeId = id;
-  localStorage.setItem('jobflow_active_profile', id);
-  renderProfileList();
-  loadDashboard();
-  loadProfileDetail(id);
-  loadPuestos(id);
-}
-
-async function uploadCV() {
-  const file = document.getElementById('upload-file').files[0];
-  const nombre = document.getElementById('upload-name').value;
-  const status = document.getElementById('upload-status');
-  if (!file) { status.innerHTML = '<p style="color:var(--warn)">Elige un archivo (PDF/DOCX/TXT).</p>'; return; }
-  status.innerHTML = '<p>Procesando CV…</p>';
-  try {
-    const fd = new FormData();
-    fd.append('file', file);
-    if (nombre) fd.append('nombre_hint', nombre);
-    const res = await fetch('/api/cv/upload', { method: 'POST', body: fd });
-    if (!res.ok) throw new Error((await res.text()).slice(0, 300));
-    const data = await res.json();
-    status.innerHTML = `<p style="color:var(--ok)">✔ CV procesado: <b>${esc(data.nombre)}</b> · ${data.experiencia.length} puesto(s) · ${data.skills.length} habilidades</p>`;
-    await loadProfiles();
-    selectProfile(data.id);
-  } catch (e) {
-    status.innerHTML = `<p style="color:var(--bad)">Error: ${esc(e.message)}</p>`;
-  }
-}
-
-async function loadProfileDetail(id) {
-  try {
-    const p = await api('/api/profiles/' + id);
-    document.getElementById('profile-detail').innerHTML = `
-      <div class="card">
-        <h2>Datos del candidato — ${esc(p.nombre)} <small class="muted">(${esc(p.fuente_cv)})</small></h2>
-        <div class="detail-grid">
-          <label>Nombre<input id="pf-nombre" value="${esc(p.nombre)}"></label>
-          <label>Email<input id="pf-email" value="${esc(p.email)}"></label>
-          <label>Teléfono<input id="pf-telefono" value="${esc(p.telefono)}"></label>
-          <label>Ubicación<input id="pf-ubicacion" value="${esc(p.ubicacion)}"></label>
-          <label>LinkedIn<input id="pf-linkedin" value="${esc(p.linkedin)}"></label>
-          <label>Seniority<select id="pf-seniority">
-            ${['asistente', 'analista_junior', 'analista'].map((s) => `<option ${p.seniority === s ? 'selected' : ''}>${s}</option>`).join('')}
-          </select></label>
-          <label>Rango salarial (elegible)
-            <select id="pf-salario">${salaryOptions(p.rango_salarial)}</select>
-          </label>
-          <label>Disponibilidad<input id="pf-disp" value="${esc(p.disponibilidad)}"></label>
-          <label>Movilidad<input id="pf-mov" value="${esc(p.movilidad)}"></label>
-        </div>
-        <div class="detail-grid">
-          <label>Headline / cargo deseado<input id="pf-headline" value="${esc(p.headline)}"></label>
-          <label>Resumen (perfil)<textarea id="pf-summary">${esc(p.summary)}</textarea></label>
-        </div>
-        <h3 style="margin-top:14px">Experiencia detectada</h3>
-        ${(p.experiencia || []).map((e) => `<pre>${esc(e.cargo)} · ${esc(e.empresa)} (${esc(e.inicio)} - ${esc(e.fin)})
-  ${esc((e.bullets || []).slice(0, 3).join('\n  '))}</pre>`).join('') || '<p class="muted">Sin experiencia detectada.</p>'}
-        <div class="hint">⚠ Los campos vacíos son datos que no se detectaron: complétalos o se marcarán
-          para confirmación (la app nunca inventa respuestas).</div>
-        <button class="btn primary" onclick="saveProfile(${id})">💾 Guardar cambios</button>
-        <button class="btn" onclick="generateCV(${id})">✨ Generar CV corregido (descargar)</button>
-        <div id="pf-status"></div>
-        ${p.texto_extraido ? `<details><summary>Texto extraído del CV</summary><pre>${esc(p.texto_extraido)}</pre></details>` : ''}
-      </div>`;
-  } catch (e) {
-    document.getElementById('profile-detail').innerHTML = `<div class="card" style="color:var(--bad)">Error: ${esc(e.message)}</div>`;
-  }
-}
-
-async function saveProfile(id) {
-  const body = {
-    nombre: document.getElementById('pf-nombre').value,
-    email: document.getElementById('pf-email').value,
-    telefono: document.getElementById('pf-telefono').value,
-    ubicacion: document.getElementById('pf-ubicacion').value,
-    linkedin: document.getElementById('pf-linkedin').value,
-    seniority: document.getElementById('pf-seniority').value,
-    rango_salarial: document.getElementById('pf-salario').value,
-    disponibilidad: document.getElementById('pf-disp').value,
-    movilidad: document.getElementById('pf-mov').value,
-    headline: document.getElementById('pf-headline').value,
-    summary: document.getElementById('pf-summary').value,
-  };
-  try {
-    await api('/api/profiles/' + id, { method: 'PATCH', body: JSON.stringify(body) });
-    document.getElementById('pf-status').innerHTML = '<p style="color:var(--ok)">✔ Guardado.</p>';
-    await loadProfiles();
-  } catch (e) {
-    document.getElementById('pf-status').innerHTML = `<p style="color:var(--bad)">Error: ${esc(e.message)}</p>`;
-  }
-}
-
-/* ---------------- Puestos objetivo ---------------- */
-async function loadPuestos(pid) {
-  if (!pid) return;
-  puestosCache = await api(`/api/profiles/${pid}/puestos`);
-  activePuestoId = (puestosCache.find((p) => p.activo) || puestosCache[0] || {}).id || null;
-  const sel = document.getElementById('role-select');
-  sel.innerHTML = puestosCache.map((p) =>
-    `<option value="${p.id}" ${p.id === activePuestoId ? 'selected' : ''}>${esc(p.titulo)}${p.activo ? ' ★' : ''}</option>`).join('')
-    || '<option value="">— sin puestos definidos —</option>';
-  const act = puestosCache.find((p) => p.id === activePuestoId);
-  if (act) {
-    document.getElementById('pt-seniority').value = act.seniority;
-    document.getElementById('pt-modality').value = act.modality || 'Presencial o hibrido';
-    document.getElementById('pt-salario').innerHTML = salaryOptions(act.rango_salarial);
-    document.getElementById('pt-info').innerHTML =
-      `Puesto objetivo activo: <b>${esc(act.titulo)}</b> · ${esc(act.seniority)} · ${esc(act.modality)} · ` +
-      `salario <b>${esc(act.rango_salarial || 'por definir')}</b> — el análisis usa esta meta.`;
-  }
-}
-
-async function createPuesto() {
-  const titulo = document.getElementById('pt-titulo').value.trim();
-  if (!titulo) { alert('Escribe el título del puesto objetivo.'); return; }
-  const body = {
-    titulo,
-    seniority: document.getElementById('pt-seniority').value,
-    modality: document.getElementById('pt-modality').value,
-    ubicacion: '',
-    rango_salarial: document.getElementById('pt-salario').value,
-    must_haves: document.getElementById('pt-must').value.split(',').map((s) => s.trim()).filter(Boolean),
-    nice_to_haves: document.getElementById('pt-nice').value.split(',').map((s) => s.trim()).filter(Boolean),
-  };
-  await api(`/api/profiles/${activeId}/puestos`, { method: 'POST', body: JSON.stringify(body) });
-  document.getElementById('pt-titulo').value = '';
-  await loadPuestos(activeId);
-}
-
-/* ---------------- Dashboard + conexiones ---------------- */
-async function loadDashboard() {
-  try {
-    const [o, p] = await Promise.all([
-      api('/api/overview' + (activeId ? '?profile_id=' + activeId : '')),
-      api('/api/profiles/' + activeId),
-    ]);
-    document.getElementById('profile-card').innerHTML = `
-      <h2>${esc(p.nombre)}</h2>
-      <p class="muted">${esc(p.email)} · ${esc(p.ubicacion)}</p>
-      <p>Puesto objetivo: <b>${esc(o.puesto_objetivo?.titulo || '—')}</b> ·
-        ${esc(o.puesto_objetivo?.seniority || '')} ·
-        salario <b>${esc(o.puesto_objetivo?.rango_salarial || 'por definir')}</b></p>
-      <p class="muted">Fuente: ${esc(p.fuente_cv)} · ${p.verificado ? 'verificado' : 'CV parseado'}</p>`;
-    const score = o.score_global ?? '—';
-    document.getElementById('kpi-row').innerHTML = `
-      <div class="kpi"><b>${score}</b><small>Score XYZ/100</small></div>
-      <div class="kpi"><b>${o.postulaciones}</b><small>Postulaciones</small></div>
-      <div class="kpi"><b>${o.correos_pendientes}</b><small>Correos pendientes</small></div>
-      <div class="kpi"><b>${esc((o.puesto_analizado || '—').split(' ')[0])}</b><small>Últ. análisis</small></div>`;
-    document.getElementById('adapters').innerHTML = (o.adapters || []).map((a) => `
-      <div class="gap-item">
-        <b>${esc(a.plataforma)}</b> ·
-        <span class="badge ${a.modo === 'autofill' ? 'ok' : 'warn'}">${esc(a.modo.toUpperCase())}</span>
-        <div class="muted">${esc(a.descripcion)}</div>
-        <div class="muted">${esc(a.tos_note)}</div>
-      </div>`).join('');
-    loadConnections();
-  } catch (e) { console.error(e); }
-}
-
-async function loadConnections() {
-  const conns = await api('/api/platforms/connections');
-  document.getElementById('connections').innerHTML = (conns || []).map((c) => `
-    <label class="conn">
-      <input type="checkbox" ${c.conectada ? 'checked' : ''} onchange="toggleConnection('${c.plataforma}', this.checked)">
-      <b>${esc(c.plataforma)}</b> <small class="muted">${esc(c.nota)}</small>
-    </label>`).join('');
-}
-
-async function toggleConnection(plataforma, conectada) {
-  await api('/api/platforms/connections', { method: 'PUT', body: JSON.stringify({ plataforma, conectada }) });
-}
-
-/* ---------------- Analisis ---------------- */
-async function runAnalysis() {
-  const btn = event.target;
-  btn.disabled = true; btn.textContent = 'Analizando…';
-  try {
-    const selectedId = Number(document.getElementById('role-select').value);
-    if (selectedId && selectedId !== activePuestoId) {
-      await api(`/api/profiles/${activeId}/puestos/activo`, { method: 'POST', body: JSON.stringify({ puesto_id: selectedId }) });
-      activePuestoId = selectedId;
-      await loadPuestos(activeId);
-    }
-    const r = await api('/api/analyze', { method: 'POST', body: JSON.stringify({ profile_id: activeId, usar_puesto: true }) });
-    const bars = r.components.map((c) => `
-      <div class="gap-item">
-        <b>${esc(c.name)}</b> (${c.peso}) — <b>${c.score}/100</b>
-        <div class="bar"><span style="width:${c.score}%"></span></div>
-      </div>`).join('');
-    document.getElementById('analysis-result').innerHTML = `
-      <div class="card">
-        <h2>Resultado: ${esc(r.target_role)}</h2>
-        <div class="kpi-row">
-          <div class="kpi"><b>${r.score_global}</b><small>Score global /100</small></div>
-          <div class="kpi"><b>${r.gaps.length}</b><small>Brechas</small></div>
-        </div>
-        ${bars}
-        <p class="muted">${esc(r.resumen)}</p>
-      </div>
-      <div class="card"><h2>Brechas priorizadas</h2>
-        ${(r.gaps || []).map((g) => `<div class="gap-item">
-           <span class="badge ${g.prioridad === 'Alta' ? 'bad' : 'warn'}">${esc(g.prioridad)}</span>
-           <b>${esc(g.titulo)}</b><div class="muted">${esc(g.detalle)}</div>
-           <div>→ ${esc(g.sugerencia)}</div></div>`).join('') || '<p class="muted">Sin brechas críticas.</p>'}
-      </div>
-      <div class="card"><h2>Reescrituras sugeridas (formato XYZ)</h2>
-        ${(r.reescrituras || []).slice(0, 8).map((w) => `<pre>${esc(w.original)}\n→ ${esc(w.guia)}</pre>`).join('') || '<p class="muted">Todos los logros están bien estructurados.</p>'}
-      </div>
-      <div class="card"><h2>Keywords a verificar antes de agregar (honestidad)</h2>
-        ${(r.keywords_para_verificar || []).map((k) => `<span class="badge warn">${esc(k.keyword)} ✓ solo si lo dominas</span> `).join('') || '<p class="muted">Todas las keywords están cubiertas.</p>'}
-      </div>`;
-  } catch (e) {
-    document.getElementById('analysis-result').innerHTML = `<div class="card" style="color:var(--bad)">Error: ${esc(e.message)}</div>`;
-  } finally { btn.disabled = false; btn.textContent = 'Analizar CV'; }
-}
-
-/* ---------------- CV generado ---------------- */
-async function generateCV(id) {
-  const box = document.getElementById('cv-result');
-  box.innerHTML = '<div class="card"><p>Generando CV corregido…</p></div>';
-  try {
-    const r = await api('/api/cv/generate', { method: 'POST', body: JSON.stringify({ profile_id: id }) });
-    const cambios = (r.correcciones || []).map((c) => `
-      <div class="gap-item">
-        <div><span class="badge ok">corregido</span> <span class="muted">${esc(c.puesto)}</span></div>
-        <div class="muted" style="text-decoration:line-through;opacity:.7">${esc(c.original)}</div>
-        <div><b>${esc(c.mejorado)}</b></div>
-      </div>`).join('');
-    box.innerHTML = `
-      <div class="card">
-        <h2>✅ CV corregido generado — ${esc(r.candidato)}</h2>
-        <p class="muted">${r.total_correcciones} correcciones (voz activa + estructura ATS). Las métricas faltantes <b>no se inventan</b>.</p>
-        <a class="btn primary" href="${r.download_url}" download>⬇ DOCX</a>
-        <a class="btn" href="${r.latex_url}" download>⬇ LaTeX (.tex)</a>
-        <button class="btn" onclick="document.getElementById('cv-latex').classList.toggle('hidden')">Ver código LaTeX</button>
-        <button class="btn" onclick="document.getElementById('cv-corrections').classList.toggle('hidden')">Ver correcciones aplicadas</button>
-        <div id="cv-latex" class="hidden" style="margin-top:10px">
-          <p class="muted">Pega el código en <a href="https://www.overleaf.com" target="_blank">Overleaf</a> o compílalo con <code>pdflatex</code>.</p>
-          <pre style="max-height:260px;overflow:auto">${esc(r.latex || '')}</pre>
-        </div>
-        <div id="cv-corrections" class="hidden" style="margin-top:10px">${cambios || '<p class="muted">Sin correcciones pendientes.</p>'}</div>
-      </div>
-      <div class="card">
-        <h2>Vista previa</h2>
-        <iframe id="cv-frame" class="cv-frame" title="CV generado"></iframe>
-        <p class="muted" style="margin-top:8px">💡 Ctrl+P → Guardar como PDF.</p>
-      </div>`;
-    document.getElementById('cv-frame').srcdoc = r.cv_html || '';
-  } catch (e) {
-    box.innerHTML = `<div class="card" style="color:var(--bad)">Error: ${esc(e.message)}</div>`;
-  }
-}
-
-/* ---------------- Autofill (formularios) ---------------- */
-async function loadBadges() {
-  const adapters = await api('/api/adapters');
-  document.getElementById('adapter-badges').innerHTML = adapters.map((a) => `
-    <span class="badge ${a.modo === 'autofill' ? 'ok' : 'warn'}">${esc(a.plataforma)} · ${esc(a.modo)}</span>`).join('');
-}
-
-function renderFormUI(r) {
-  formState = r;
-  document.getElementById('form-result').innerHTML = `
-    <div class="card">
-      <h2>Formulario detectado (${esc(r.plataforma)}) — ${esc(r.vacante)} · Candidato: ${esc(r.candidato)}</h2>
-      <p class="muted">${esc(r.regla_humana)}</p>
-      ${(r.answers || []).map((a) => `
-        <div class="answer-row">
-          <label class="small">${esc(a.label)}</label>
-          <textarea id="ans-${a.field_id}" ${a.necesita_input ? 'style="border-color:var(--warn)"' : ''}>${esc(a.answer)}</textarea>
-        </div>`).join('')}
-      <button class="btn primary" onclick="approveForm()">✔ Aprobar respuestas</button>
-      <button class="btn" onclick="submitForm()" id="submit-btn" disabled>Enviar postulación (con aprobación)</button>
-      <div id="form-status"></div>
-    </div>`;
-}
-
-async function runFormPipeline() {
-  const btn = event.target;
-  btn.disabled = true; btn.textContent = 'Ejecutando pipeline…';
-  try {
-    const r = await api('/api/form/prepare', {
-      method: 'POST',
-      body: JSON.stringify({ profile_id: activeId, platform: 'test', vacante_titulo: 'Analista de Cobranzas', vacante_empresa: 'Empresa Ejemplo' }),
-    });
-    renderFormUI(r);
-  } catch (e) {
-    document.getElementById('form-result').innerHTML = `<div class="card" style="color:var(--bad)">Error: ${esc(e.message)}</div>`;
-  } finally { btn.disabled = false; btn.textContent = '▶ Ejecutar pipeline (formulario de prueba)'; }
-}
-
-async function approveForm() {
-  const edits = (formState.answers || []).map((a) => ({ field_id: a.field_id, answer: document.getElementById('ans-' + a.field_id).value }));
-  await api(`/api/form/${formState.form_id}/approve`, { method: 'POST', body: JSON.stringify({ edits }) });
-  document.getElementById('submit-btn').disabled = false;
-  document.getElementById('form-status').innerHTML = `<p style="color:var(--ok)">✔ Aprobado. Ya puedes enviar.</p>`;
-}
-
-async function submitForm() {
-  try {
-    const r = await api(`/api/form/${formState.form_id}/submit`, { method: 'POST' });
-    document.getElementById('form-status').innerHTML =
-      `<p style="color:var(--ok)">✔ Postulación #${r.postulacion_id} registrada. Correo: <b>${esc(r.correo.estado)}</b> → ${esc(r.correo.destinatario)}</p>`;
-    document.getElementById('submit-btn').disabled = true;
-    loadApplications();
-  } catch (e) {
-    document.getElementById('form-status').innerHTML = `<p style="color:var(--bad)">${esc(e.message)}</p>`;
-  }
-}
-
-/* ---------------- Empleos ---------------- */
-async function searchJobs() {
-  const status = document.getElementById('job-status');
-  const box = document.getElementById('job-results');
-  status.innerHTML = '<p>🔎 Buscando en Bumeran, Computrabajo, Indeed y LinkedIn (puede tardar ~40 seg)…</p>';
-  box.innerHTML = '';
-  try {
-    const r = await api('/api/jobs/search', { method: 'POST', body: JSON.stringify({ profile_id: activeId }) });
-    status.innerHTML = `<p style="color:var(--ok)">✔ Búsqueda para <b>${esc(r.candidato)}</b> — consulta: "${esc(r.query)}"</p>`;
-    box.innerHTML = (r.plataformas || []).map((p) => `
-      <div class="card">
-        <h2>${esc(p.nombre)} <span class="badge ${p.estado === 'ok' ? 'ok' : 'warn'}">${esc(p.estado)}</span></h2>
-        ${p.estado !== 'ok' ? `<p class="muted">${esc(p.nota)}</p>` : ''}
-        <a class="btn" href="${esc(p.url)}" target="_blank" rel="noopener">Abrir búsqueda en ${esc(p.nombre)}</a>
-        ${(p.resultados || []).map((j, i) => `
-          <div class="gap-item" id="job-${esc(p.plataforma)}-${i}">
-            <b>${esc(j.titulo)}</b> <span class="badge ok">${j.match}% match</span>
-            <div class="muted">${esc(j.empresa)} · ${esc(j.ubicacion)}</div>
-            <div>
-              ${j.link ? `<a href="${esc(j.link)}" target="_blank" rel="noopener">Ver vacante ↗</a> · ` : ''}
-              <button class="btn" onclick="postular(this)"
-                data-plataforma="${esc(p.plataforma)}" data-titulo="${esc(j.titulo)}"
-                data-empresa="${esc(j.empresa)}" data-url="${esc(j.link || '')}" data-idx="${i}">Postular</button>
-              <span id="post-status-${esc(p.plataforma)}-${i}"></span>
-            </div>
-          </div>`).join('')}
-      </div>`).join('');
-  } catch (e) {
-    status.innerHTML = `<p style="color:var(--bad)">Error: ${esc(e.message)}</p>`;
-  }
-}
-
-async function postular(btn) {
-  const { id } = btn.dataset;
-  const status = document.getElementById(`post-status-${btn.dataset.plataforma}-${btn.dataset.idx}`);
-  btn.disabled = true;
-  try {
-    const r = await api('/api/postulaciones', {
-      method: 'POST',
-      body: JSON.stringify({
-        profile_id: activeId, plataforma: btn.dataset.plataforma,
-        titulo: btn.dataset.titulo, empresa: btn.dataset.empresa, url: btn.dataset.url,
-      }),
-    });
-    status.innerHTML = `<span class="badge ok">✔ Postulada #${r.postulacion_id} · correo: ${esc(r.correo.estado)} → ${esc(r.correo.destinatario)}</span>`;
-    loadApplications();
-  } catch (e) {
-    status.innerHTML = `<span class="badge bad">Error: ${esc(e.message)}</span>`;
-    btn.disabled = false;
-  }
-}
-
-/* ---------------- Correo <-> solicitud ---------------- */
-async function loadEmails() {
-  const emails = await api('/api/emails');
-  document.getElementById('email-list').innerHTML = `<div class="card"><table>
-    <thead><tr><th>Remitente</th><th>Asunto</th><th>Clasificación</th><th>Formulario</th><th>Solicitud</th><th></th></tr></thead>
-    <tbody>${(emails || []).map((e) => `
-      <tr><td>${esc(e.remitente)}</td><td>${esc(e.asunto)}</td>
-      <td><span class="badge ${e.clasificacion === 'requiere_accion' ? 'bad' : 'ok'}">${esc(e.clasificacion)}</span></td>
-      <td>${e.tiene_formulario ? '📄 Sí' : '—'}</td>
-      <td>${e.form_enviado ? '<span class="badge ok">postulado ✓</span>'
-        : (e.form_id ? '<span class="badge warn">borrador #' + e.form_id + '</span>' : esc(e.estado))}</td>
-      <td>${e.tiene_formulario && !e.form_enviado
-        ? `<button class="btn" onclick="resolverEmail(${e.id})">Resolver con autofill</button>` : ''}</td>
-      </tr>`).join('')}</tbody></table></div>`;
-}
-
-async function resolverEmail(emailId) {
-  try {
-    const r = await api(`/api/emails/${emailId}/resolver`, { method: 'POST' });
-    renderFormUI(r);
-    goTab('autofill');
-    document.getElementById('form-status').innerHTML =
-      `<p class="muted">📮 Formulario creado desde el correo #${emailId}. Revisa las respuestas, aprueba y envía.</p>`;
-    loadEmails();
-  } catch (e) {
-    alert('Error: ' + e.message);
-  }
-}
-
-/* ---------------- Postulaciones ---------------- */
-async function loadApplications() {
-  try {
-    const apps = await api('/api/applications' + (activeId ? '?profile_id=' + activeId : ''));
-    document.querySelector('#app-table tbody').innerHTML = (apps || []).map((a) => `
-      <tr>
-        <td><b>${esc(a.vacante?.titulo || '—')}</b><div class="muted">${esc(a.vacante?.empresa || '')}${a.vacante?.url ? ` · <a href="${esc(a.vacante.url)}" target="_blank">enlace ↗</a>` : ''}</div></td>
-        <td>${esc(a.vacante?.plataforma || '—')}</td>
-        <td><span class="badge ok">${esc(a.estado)}</span></td>
-        <td>${esc((a.fecha || '').slice(0, 10))}</td>
-        <td>${a.correo ? `<span class="badge ${a.correo.estado === 'enviado' ? 'ok' : 'warn'}">${esc(a.correo.estado)}</span> → ${esc(a.correo.destinatario)}` : '—'}</td>
-        <td>${a.n_respuestas}</td>
-      </tr>`).join('') || '<tr><td colspan="6" class="muted">Sin postulaciones. Crea una desde Empleos o desde el autofill.</td></tr>';
-  } catch (e) { console.error(e); }
-}
-
-/* ---------------- Init ---------------- */
-loadBadges().then(loadEmails);
-loadProfiles().then(loadApplications);
+'use strict';
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const state={pid:null,profile:null,setup:null,goals:{},apps:[],events:[],active:null,detail:'vacancy',versions:[],route:0};
+const statuses={descubierta:'Guardada',preparada:'Preparada',postulada:'Postulada',incompatible:'Incompatible',pendiente_revision_duplicado:'Posible duplicado',intento_no_confirmado:'Sin confirmación',entrevista:'Entrevista',rechazada:'Rechazada',vencida:'Vencida',en_revision:'En revisión',cv_leido:'CV leído',contactado:'Contactado',evaluacion:'Evaluación',oferta:'Oferta',bloqueada:'Bloqueada'};
+const badge=s=>`<span class="badge ${['postulada','oferta','entrevista'].includes(s)?'success':['pendiente_revision_duplicado','intento_no_confirmado','bloqueada'].includes(s)?'warning':['incompatible','rechazada','vencida'].includes(s)?'error':''}">${esc(statuses[s]||s)}</span>`;
+const empty=(title,text,link='',label='')=>`<div class="empty"><span class="empty-symbol" aria-hidden="true">✧</span><h3>${esc(title)}</h3><p>${esc(text)}</p>${link?`<a class="button secondary" href="${esc(link)}">${esc(label)}</a>`:''}</div>`;
+function notice(text,error=false){const n=$('#notice');n.textContent=text;n.className=error?'error':'';n.hidden=false;}
+async function api(path,method='GET',data){const options={method};if(data instanceof FormData)options.body=data;else if(data!==undefined){options.headers={'Content-Type':'application/json'};options.body=JSON.stringify(data);}const response=await fetch(path,options);let value;try{value=await response.json();}catch{throw Error('El servidor no devolvió una respuesta válida. Revisa la conexión.');}if(!response.ok){let detail=value.detail;throw Error(typeof detail==='string'?detail:Array.isArray(detail)?detail.map(d=>d.msg).join(' · '):detail?.message||'No se pudo completar la operación.');}return value;}
+function busy(button,fn){return async event=>{event?.preventDefault();if(button?.disabled)return;const original=button?.textContent;if(button){button.disabled=true;button.textContent='Un momento…';}try{await fn(event);}catch(e){notice(e.message,true);}finally{if(button){button.disabled=false;button.textContent=original;}}};}
+function bindForm(id,fn){const form=$(id);form.addEventListener('submit',busy(form.querySelector('button:not([type=button])'),fn));}
+function theme(value){if(value==='system')delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=value;}
+function href(value){try{const u=new URL(value);return ['https:','http:'].includes(u.protocol)?esc(u.href):'';}catch{return '';}}
+function dateLabel(value){if(!value)return '';const raw=/Z$|[+-]\d\d:\d\d$/.test(value)?value:value+'Z';return new Date(raw).toLocaleString('es-PE',{timeZone:state.setup?.settings.timezone||'America/Lima',dateStyle:'medium',timeStyle:'short'});}
+function input(label,name,value='',type='text',full=false){return `<label class="${full?'full':''}">${esc(label)}<input type="${type}" name="${name}" value="${esc(value)}"></label>`;}
+function area(label,name,value='',full=true){return `<label class="${full?'full':''}">${esc(label)}<textarea name="${name}" rows="3">${esc(value)}</textarea></label>`;}
+function formObject(form){return Object.fromEntries(new FormData(form));}
+function cpath(s){return `/api/career/profiles/${state.pid}/${s}`;}
+async function refresh(){if(!state.pid)return;const pid=state.pid;const results=await Promise.all([api(`/api/profiles/${pid}`),api(`/api/career/profiles/${pid}/setup`),api(`/api/career/profiles/${pid}/goals`),api(`/api/applications?profile_id=${pid}`),api(`/api/career/profiles/${pid}/events`)]);if(pid!==state.pid)return;[state.profile,state.setup,state.goals,state.apps,state.events]=results;theme(state.setup.settings.theme);$('#avatar').textContent=(state.profile.nombre||'J')[0];$('#export-tracker').href=`/api/tracker/export?profile_id=${pid}`;}
+async function profiles(){const list=await api('/api/profiles');$('#profile-picker').innerHTML=list.map(p=>`<option value="${p.id}">${esc(p.nombre||'Perfil sin nombre')}</option>`).join('');if(!list.length){notice('Carga tu primer CV para comenzar.');return;}if(!list.some(p=>p.id===state.pid))state.pid=list[0].id;$('#profile-picker').value=state.pid;}
+async function route(){const token=++state.route;const route=(location.hash.slice(1)||'today').split('/');const page=route[0]==='application'?'detail':route[0];if(!['today','profile','jobs','applications','detail','agenda','connections'].includes(page)){location.hash='today';return;}$$('[data-view]').forEach(el=>el.hidden=el.dataset.view!==page);$$('[data-page]').forEach(el=>{el.classList.toggle('active',el.dataset.page===(page==='detail'?'applications':page));if(el.classList.contains('active'))el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');});if(!state.pid)return;try{await refresh();if(token!==state.route)return;switch(page){case 'today':await today();break;case 'profile':renderProfile();break;case 'jobs':await jobs();break;case 'applications':renderApplications();break;case 'agenda':renderAgenda();break;case 'connections':await connections();break;case 'detail':state.active=Number(route[1]);state.detail='vacancy';await detail();break;}}catch(e){notice(e.message,true);}}
+async function today(){const s=await api(cpath('summary'));const first=(state.profile.nombre||'').split(' ')[0];const hour=Number(new Intl.DateTimeFormat('es',{hour:'numeric',hourCycle:'h23',timeZone:state.setup.settings.timezone}).format(new Date()));$('#greeting').textContent=`${hour>=18?'Buenas noches':hour>=12?'Buenas tardes':'Buenos días'}${first?', '+first:''}.`;
+$('#today-date').textContent=new Date().toLocaleDateString('es-PE',{weekday:'long',day:'numeric',month:'long',timeZone:state.setup.settings.timezone}).toUpperCase();$('#today-subtitle').textContent=s.counts.pending?`Tienes ${s.counts.pending} candidatura(s) que necesitan tu revisión.`:'Un espacio para avanzar con claridad, a tu ritmo.';
+const ready=state.setup.confirmed&&state.setup.goals_confirmed;$('#onboarding').hidden=ready;$('#onboarding').innerHTML=`<div><strong>${state.setup.confirmed?'Elige tus puestos objetivo':'Tu perfil es el punto de partida'}</strong><p>${state.setup.confirmed?'Guarda tus preferencias antes de buscar oportunidades.':'Confirma tu experiencia para preparar postulaciones fieles a ti.'}</p></div><a class="button primary" href="#profile">${state.setup.confirmed?'Elegir mis objetivos':'Revisar mi perfil'}</a>`;
+$('#today-stats').innerHTML=[['Confirmadas hoy',s.counts.confirmed,'Con evidencia registrada'],['Preparadas hoy',s.counts.prepared,'Listas para revisar'],['Necesitan atención',s.counts.pending,'Pendientes acumulados']].map(([title,n,note])=>`<a class="stat" href="#applications"><span>${title}</span><strong>${n}</strong><p>${note}</p></a>`).join('');
+const rows=items=>items.map(i=>`<div class="activity-row"><div><a href="#application/${i.id}"><strong>${esc(i.title)}</strong></a><p>${esc(i.company)}</p></div>${badge(i.status)}</div>`).join('');
+$('#today-pending').innerHTML=rows(s.pending.slice(0,5))||empty('Todo en orden por aquí','Cuando una candidatura necesite tu aprobación, la encontrarás en este espacio.');$('#today-activity').innerHTML=rows(s.activity)||empty('Hoy puedes dar el siguiente paso','Guarda una oportunidad para empezar a preparar tu candidatura.','#jobs','Buscar oportunidades');$('#today-agenda').innerHTML=s.upcoming.map(e=>`<div class="activity-row"><div><strong>${esc(e.title)}</strong><p>${esc(dateLabel(e.start))}</p><small>${e.confirmed?'Fecha confirmada':'Por confirmar'}</small></div></div>`).join('')||empty('Tu próximo encuentro','Las entrevistas y recordatorios aparecerán aquí.');}
+function experienceField(e={},i=0){return `<fieldset class="experience"><legend>Experiencia ${i+1}</legend><div class="form-grid">${input('Empresa','empresa',e.empresa)}${input('Cargo formal, si consta','cargo',e.cargo)}${input('Inicio','inicio',e.inicio)}${input('Fin','fin',e.fin)}${area('Funciones, una por línea','bullets',(e.bullets||[]).join('\n'))}</div><button type="button" class="text-button" data-remove-experience>Quitar esta experiencia</button></fieldset>`;}
+function renderProfile(){const p=state.profile;$('#profile-status').textContent=state.setup.confirmed?'Confirmado por ti':'Por revisar';$('#confirm-check').checked=false;
+$('#confirm-profile').disabled=false;$('#profile-fields').innerHTML=input('Nombre completo','nombre',p.nombre)+input('Correo','email',p.email,'email')+input('Teléfono','telefono',p.telefono)+input('Ubicación','ubicacion',p.ubicacion)+input('Titular profesional','headline',p.headline)+input('LinkedIn','linkedin',p.linkedin,'url')+input('Disponibilidad','disponibilidad',p.disponibilidad)+input('Movilidad','movilidad',p.movilidad)+input('Pretensión salarial confirmada','rango_salarial',p.rango_salarial)+area('Resumen profesional','summary',p.summary)+area('Formación, una por línea','educacion',(p.educacion||[]).join('\n'))+area('Herramientas: nombre | nivel, una por línea','skill_levels',(p.skills||[]).map(s=>s.join(' | ')).join('\n'))+area('Idiomas: idioma | nivel, uno por línea','languages',Object.entries(p.languages||{}).map(s=>s.join(' | ')).join('\n'))+area('Proyectos, uno por línea','proyectos',(p.proyectos||[]).join('\n'))+area('Datos pendientes que no deben afirmarse','pendientes',(p.pendientes||[]).join('\n'));
+$('#experience-fields').innerHTML=(p.experiencia||[]).map(experienceField).join('');const g=state.goals,f=$('#goals-form');for(const k of ['location','modality','seniority','salary','restrictions'])if(g[k])f.elements[k].value=g[k];f.elements.titles.value=(g.titles||[]).join('\n');if(!g.location)f.elements.location.value=p.ubicacion||'';$('#goals-panel').querySelector('button').disabled=!state.setup.confirmed;}
+const lines=s=>String(s||'').split('\n').map(s=>s.trim()).filter(Boolean);
+bindForm('#upload-form',async()=>{const result=await api('/api/cv/upload','POST',new FormData($('#upload-form')));state.pid=result.id;await profiles();await refresh();renderProfile();notice('CV extraído. Revisa y corrige sus datos antes de confirmar.');});
+bindForm('#profile-form',async()=>{const f=$('#profile-form'),data=formObject(f);for(const k of ['empresa','cargo','inicio','fin','bullets'])delete data[k];for(const k of ['educacion','proyectos','pendientes'])data[k]=lines(data[k]);const pairs=s=>lines(s).map(line=>{const [a,...rest]=line.split('|');return [a.trim(),rest.join('|').trim()];});data.skill_levels=pairs(data.skill_levels);data.languages=Object.fromEntries(pairs(data.languages));data.experiencia=$$('.experience').map(el=>{const v={};el.querySelectorAll('input,textarea').forEach(x=>v[x.name]=x.value.trim());v.bullets=lines(v.bullets);return v;});await api(`/api/profiles/${state.pid}`,'PATCH',data);await refresh();renderProfile();notice('Correcciones guardadas. Confirma los datos actualizados.');});
+$('#profile-form').addEventListener('input',()=>{$('#confirm-profile').disabled=true;$('#confirm-check').checked=false;});
+$('#add-experience').onclick=()=>{$('#experience-fields').insertAdjacentHTML('beforeend',experienceField({},$$('.experience').length));$('#confirm-profile').disabled=true;};$('#experience-fields').onclick=e=>{if(e.target.hasAttribute('data-remove-experience')){e.target.closest('fieldset').remove();$('#confirm-profile').disabled=true;}};
+$('#confirm-profile').onclick=busy($('#confirm-profile'),async()=>{if(!$('#confirm-check').checked)throw Error('Marca la confirmación después de revisar los datos guardados.');await api(cpath('confirm'),'POST',{accepted:true,profile_hash:state.setup.profile_hash});await refresh();renderProfile();$('#goals-panel').scrollIntoView({behavior:'smooth'});notice('Perfil confirmado. Ahora elige tus puestos objetivo.');});
+bindForm('#goals-form',async()=>{const data=formObject($('#goals-form'));data.titles=lines(data.titles);await api(cpath('goals'),'PUT',data);notice('Objetivos guardados. La búsqueda utilizará estos puestos.');location.hash='jobs';});
+async function jobs(){$('#import-form button[type=submit], #import-form button:not([type])').disabled=!(state.setup.confirmed&&state.setup.goals_confirmed);const targets=await api(`/api/profiles/${state.pid}/puestos`);$('#search-target').innerHTML=targets.map(t=>`<option value="${t.id}">${esc(t.titulo)}</option>`).join('');const ready=state.setup.confirmed&&state.setup.goals_confirmed;$('#search-form button').disabled=!ready;$('#search-preferences').textContent=ready?`${state.goals.location} · ${state.goals.modality} · ${state.goals.salary||'Salario por evaluar'}${state.goals.restrictions?' · Revisar: '+state.goals.restrictions:''}`:'Primero confirma tu CV y guarda los puestos deseados en Mi perfil.';}
+$('#toggle-import').onclick=()=>{$('#import-panel').hidden=!$('#import-panel').hidden;};
+bindForm('#search-form',async()=>{const pid=state.pid;$('#search-status').textContent='Buscando ofertas. Algunas plataformas pueden pedir que abras su sitio.';const r=await api('/api/jobs/search','POST',{profile_id:pid,target_id:Number($('#search-target').value)});if(pid!==state.pid)return;$('#search-status').textContent='Búsqueda terminada. Comprueba la descripción completa antes de preparar cada candidatura.';$('#job-results').innerHTML=r.plataformas.map(p=>`<article class="panel"><div class="section-heading"><h2>${esc(p.nombre||p.plataforma)}</h2><a target="_blank" rel="noopener noreferrer" href="${href(p.url)}">Abrir búsqueda original ↗</a></div><p>${esc(p.nota||'Resultados encontrados')}</p><div class="job-grid">${(p.resultados||[]).map(j=>`<div class="job-card"><p class="company">${esc(j.empresa)}</p><h3>${esc(j.titulo)}</h3><p class="job-meta">${esc(j.ubicacion)}</p><a class="button secondary" href="${href(j.link)}" target="_blank" rel="noopener noreferrer">Ver anuncio</a><button class="button primary" data-import-job="${esc(JSON.stringify({...j,plataforma:p.plataforma}))}">Añadir para evaluar</button></div>`).join('')||empty('Revisa el portal original','Si requiere sesión o verificación, abre el enlace y pega aquí el aviso.')}</div></article>`).join('');});
+$('#job-results').onclick=e=>{const b=e.target.closest('[data-import-job]');if(!b)return;const j=JSON.parse(b.dataset.importJob);$('#import-panel').hidden=false;const f=$('#import-form');f.reset();for(const k of ['titulo','empresa','ubicacion','plataforma'])f.elements[k].value=j[k]==='—'?'':j[k]||'';f.elements.url.value=j.link||'';$('#import-panel').scrollIntoView({behavior:'smooth'});};
+bindForm('#import-form',async()=>{const data=formObject($('#import-form'));data.profile_id=state.pid;for(const k of ['anos_obligatorios','meses_relevantes_confirmados','salario_max','salario_min_aceptado'])data[k]=data[k]===''?null:Number(data[k]);data.herramientas=data.herramientas.split(',').map(s=>s.trim()).filter(Boolean);data.vigente=data.vigente===''?null:data.vigente==='true';data.fecha_publicacion=data.fecha_publicacion||null;const r=await api('/api/jobs/import','POST',data);notice(r.duplicada?'Esta oportunidad ya estaba guardada.':'Oportunidad evaluada y guardada.');location.hash='application/'+r.id;});
+function card(a){const j=a.vacante||{},analysis=a.detalle?.analisis||{},d=a.detalle?.vacante||{};return `<article class="job-card"><div class="section-heading"><span class="company">${esc(j.empresa)}</span>${badge(a.estado)}</div><h3>${esc(j.titulo)}</h3><p class="job-meta">${esc(d.ubicacion||'Ubicación por comprobar')} · ${esc(d.modalidad||'Modalidad por comprobar')}</p>${d.salario_max?`<p class="job-meta">Salario máximo publicado: S/${esc(d.salario_max)}</p>`:''}<div class="match"><strong>${esc(analysis.compatibilidad??'—')}/100 · Compatibilidad estimada</strong><br>${esc((analysis.requisitos_cumplidos||analysis.componentes?.filter(c=>c.puntos>0).map(c=>c.criterio||c.nombre)||[]).slice(0,2).join(' · ')||'Abre la oferta para revisar requisitos y brechas.')}</div><a class="button secondary" href="#application/${a.id}">Revisar oportunidad</a></article>`;}
+function renderApplications(){const filter=$('#application-filter').value;const list=state.apps.filter(a=>filter==='all'||a.estado===filter||(filter==='blocked'&&['incompatible','bloqueada','pendiente_revision_duplicado','intento_no_confirmado'].includes(a.estado)));$('#applications-list').innerHTML=list.map(card).join('')||empty('Tu búsqueda comienza con una oportunidad','Guarda una vacante para preparar tu CV y seguir sus avances.','#jobs','Explorar oportunidades');}
+$('#application-filter').onchange=renderApplications;$('#back-applications').onclick=()=>location.hash='applications';
+$('#detail-nav').onclick=busy(null,async e=>{const b=e.target.closest('[data-detail]');if(b){state.detail=b.dataset.detail;await detail();}});
+async function detail(){const a=state.apps.find(a=>a.id===state.active);if(!a){$('#detail-content').innerHTML=empty('No encontramos esta candidatura','Vuelve al listado del perfil activo.','#applications','Ver postulaciones');$('#application-heading').innerHTML='';return;}const job=a.vacante||{},analysis=a.detalle?.analisis||{};$('#application-heading').innerHTML=`<div class="page-heading"><div><p class="eyebrow">${esc(job.empresa)}</p><h1>${esc(job.titulo)}</h1>${badge(a.estado)}</div>${href(job.url)?`<a class="button secondary" target="_blank" rel="noopener noreferrer" href="${href(job.url)}">Abrir oferta original ↗</a>`:''}</div>`;$$('[data-detail]').forEach(b=>{b.classList.toggle('active',b.dataset.detail===state.detail);b.setAttribute('aria-pressed',b.dataset.detail===state.detail);});const out=$('#detail-content');
+if(state.detail==='vacancy'){out.innerHTML=`<article class="panel"><h2>Por qué podría encajar contigo</h2><p>Compatibilidad estimada: ${esc(analysis.compatibilidad??'—')}/100. No representa una probabilidad de contratación.</p><h3>Coincidencias</h3><ul>${(analysis.requisitos_cumplidos||analysis.componentes?.filter(c=>c.puntos>0).map(c=>c.criterio||c.nombre)||[]).map(s=>`<li>${esc(s)}</li>`).join('')||'<li>Faltan datos del anuncio para confirmar coincidencias.</li>'}</ul><h3>Por revisar</h3><ul>${[...(analysis.motivos_exclusion||[]),...(analysis.brechas||[]),...(analysis.datos_pendientes||[])].map(s=>`<li>${esc(s)}</li>`).join('')||'<li>Comprueba vigencia y condiciones en el portal.</li>'}</ul>${state.goals.restrictions?`<p>Tus restricciones: ${esc(state.goals.restrictions)}. Revisión manual requerida.</p>`:''}<button class="button primary" data-action="open-cv">Preparar mi CV</button></article><article class="panel"><h2>Descripción de la vacante</h2><p class="description">${esc(a.detalle?.vacante?.descripcion||'Abre el anuncio original para revisar los requisitos completos.')}</p></article>`;}
+if(state.detail==='cv'){state.versions=await api(`/api/career/applications/${a.id}/cvs`);out.innerHTML=`<article class="panel"><div class="section-heading"><h2>Un CV para ${esc(job.empresa)}</h2><button class="button primary" data-action="adapt">Crear adaptación</button></div><p>Prioriza funciones y herramientas confirmadas según este anuncio. Cada versión conserva el perfil original y sus cambios.</p><div id="versions">${state.versions.map(versionView).join('')||empty('Tu primera adaptación','Confirma tu perfil y objetivos, y crea una versión para esta candidatura.')}</div></article>`;}
+if(state.detail==='answers'){out.innerHTML=`<article class="panel"><h2>Prepara tus respuestas</h2><p>Pega las preguntas reales. Las respuestas quedan vinculadas a esta candidatura.</p><label>Una pregunta por línea<textarea id="questions" rows="5" placeholder="¿Cuál es tu disponibilidad?&#10;¿Qué herramientas manejas?"></textarea></label><button class="button primary" data-action="prepare">Preparar respuestas</button><div id="answer-draft"></div></article>`;const old=[...(a.auditoria||[])].reverse().find(e=>e.accion==='preparada'&&e.datos?.form_id);if(old){const f=await api('/api/form/'+old.datos.form_id);answerView(f.form_id,f.respuestas,f.aprobado);}}
+if(state.detail==='recruiter'){const r=await api(`/api/career/applications/${a.id}/recruiters`);out.innerHTML=`<article class="panel"><h2>Conoce al equipo de selección</h2><p>Búsqueda asistida de perfiles profesionales públicos. Comprueba quién gestiona esta vacante antes de contactarlo.</p><a class="button secondary" href="${href(r.search_url)}" target="_blank" rel="noopener noreferrer">Buscar reclutadores de ${esc(job.empresa)} ↗</a><div>${r.contacts.map(c=>`<div class="diff-row"><h3>${esc(c.name)}</h3><p>${esc(c.role)} · ${esc(c.relationship.replaceAll('_',' '))}</p><p>Formación: ${esc(c.education||'Sin registrar')}<br>Experiencia: ${esc(c.experience||'Sin registrar')}</p><a href="${href(c.source_url)}" target="_blank" rel="noopener noreferrer">Fuente profesional ↗</a><p>Registrado: ${esc(dateLabel(c.checked_at))}. ${esc(c.verification)}</p></div>`).join('')}</div><details><summary>Guardar un contacto profesional</summary><form id="contact-form"><div class="form-grid">${input('Nombre','name')}${input('Cargo actual','role')}${area('Universidad o formación pública','education')}${area('Experiencia profesional pública','experience')}${input('Enlace a la fuente pública','source_url','','url')}</div><label>Relación con la vacante<select name="relationship"><option value="posible_contacto">Posible contacto; sin confirmar</option><option value="responsable_identificado">Responsable identificado</option></select></label>${area('Evidencia de que gestiona esta vacante','evidence')}<button class="button primary">Guardar contacto</button></form></details></article>`;bindForm('#contact-form',async()=>{await api(`/api/career/applications/${a.id}/recruiters`,'POST',formObject($('#contact-form')));await detail();notice('Contacto guardado con su fuente.');});}
+if(state.detail==='history'){const vs=await api(`/api/career/applications/${a.id}/cvs`);out.innerHTML=`<article class="panel"><h2>Registrar un avance</h2><p>Marca una postulación como enviada solo si el portal o un correo lo confirma.</p><form id="status-form"><label>Estado<select name="estado">${Object.entries(statuses).filter(([k])=>!['incompatible','bloqueada','pendiente_revision_duplicado'].includes(k)).map(([k,v])=>`<option value="${k}" ${a.estado===k?'selected':''}>${v}</option>`).join('')}${a.estado==='pendiente_revision_duplicado'?'<option value="duplicado_descartado">Confirmé que son vacantes diferentes</option>':''}</select></label><label>Tipo de evidencia<select name="tipo_evidencia"><option value="">Selecciona si hubo envío</option><option value="mensaje_portal">Mensaje del portal</option><option value="correo_confirmacion">Correo de confirmación</option><option value="id_candidatura">Identificador de candidatura</option></select></label>${area('Evidencia','evidencia')}<label>CV utilizado<select name="cv_version_id"><option value="">Sin versión asociada</option>${vs.filter(v=>v.approved).map(v=>`<option value="${v.id}">Versión ${v.id} · ${esc(dateLabel(v.created))}</option>`).join('')}</select></label>${area('Nota o aclaración','nota')}<button class="button primary">Guardar avance</button></form></article><article class="panel"><h2>Historial de la candidatura</h2><div class="timeline">${[...(a.auditoria||[])].reverse().map(e=>`<div class="timeline-item"><strong>${esc(e.accion.replaceAll('_',' '))}</strong><p>${esc(dateLabel(e.fecha))}</p>${e.datos?.evidencia?`<p>${esc(e.datos.evidencia)}</p>`:''}${e.datos?.version_id?`<p>CV versión ${e.datos.version_id}</p>`:''}</div>`).join('')}</div></article>`;bindForm('#status-form',async()=>{const d=formObject($('#status-form'));d.cv_version_id=d.cv_version_id?Number(d.cv_version_id):null;await api(`/api/applications/${a.id}`,'PATCH',d);await refresh();await detail();notice('Avance registrado con trazabilidad.');});}}
+function versionView(v){return `<details ${v===state.versions[0]?'open':''}><summary>Versión ${v.id} · ${esc(dateLabel(v.created))} · ${v.approved?'Aprobada':'Por revisar'}</summary><div class="actions"><a class="button secondary" href="/api/career/cv/${v.id}/download?format=docx">Descargar DOCX</a><a class="button secondary" href="/api/career/cv/${v.id}/download?format=latex">Fuente LaTeX</a>${!v.approved?`<button class="button primary" data-action="approve-cv" data-id="${v.id}">Aprobar esta versión</button>`:''}</div>${v.changes.map(c=>`<div class="diff-row"><h3>${esc(c.campo)}</h3><p>${esc(c.motivo)}</p><details><summary>Ver qué cambió</summary><p>Antes: ${esc(c.antes)}</p><p class="after">Ahora: ${esc(c.despues)}</p></details></div>`).join('')||'<p>Se conserva el contenido: no se identificaron cambios de orden relevantes.</p>'}<label class="cv-side-selector">Vista<select data-cv-side><option value="adapted">CV adaptado</option><option value="original">CV original</option></select></label><div class="cv-comparison"><div class="cv-original"><h3>Original</h3><iframe sandbox title="CV original" srcdoc="${esc(v.original_html)}"></iframe></div><div class="cv-adapted"><h3>Adaptado</h3><iframe sandbox title="CV adaptado" srcdoc="${esc(v.cv_html)}"></iframe></div></div></details>`;}
+function answerView(id,answers,approved=false){$('#answer-draft').innerHTML=`<form id="answers-review" data-id="${id}">${answers.map((a,i)=>`<label>${esc(a.label)}${a.bloqueada?' · Requiere intervención personal':''}<textarea rows="3" data-field="${esc(a.field_id)}" ${a.bloqueada?'disabled':''}>${esc(a.answer)}</textarea><small>${esc(a.fuente||'Dato pendiente de confirmar')}</small></label>`).join('')}<button class="button primary" ${answers.some(a=>a.bloqueada)?'disabled':''}>${approved?'Guardar nueva revisión':'Aprobar respuestas revisadas'}</button><p>La aprobación guarda el borrador. Copia las respuestas al portal original para enviarlas.</p></form>`;bindForm('#answers-review',async()=>{const edits=$$('#answers-review textarea').map(t=>({field_id:t.dataset.field,answer:t.value}));await api(`/api/form/${id}/approve`,'POST',{edits});notice('Respuestas revisadas y guardadas. El envío se realiza en el portal original.');});}
+$('#detail-content').addEventListener('change',e=>{if(e.target.matches('[data-cv-side]'))e.target.closest('details').querySelector('.cv-comparison').classList.toggle('show-original',e.target.value==='original');});
+$('#detail-content').addEventListener('click',async e=>{const b=e.target.closest('[data-action]');if(!b)return;await busy(b,async()=>{switch(b.dataset.action){case 'open-cv':state.detail='cv';await detail();break;case 'adapt':await api(`/api/career/applications/${state.active}/cv`,'POST');await refresh();await detail();notice('CV adaptado. Revisa los cambios antes de aprobar.');break;case 'approve-cv':await api(`/api/career/cv/${b.dataset.id}/approve`,'POST');await detail();notice('Versión aprobada y conservada.');break;case 'prepare':const schema=lines($('#questions').value).map((label,i)=>({id:'q'+i,label,type:'text'}));if(!schema.length)throw Error('Pega al menos una pregunta del portal.');const f=await api(`/api/applications/${state.active}/prepare`,'POST',{profile_id:state.pid,form_schema:schema});answerView(f.form_id,f.answers);await refresh();break;}})(e);});
+function renderAgenda(){const f=$('#event-form');$('#event-application').innerHTML='<option value="">Sin asociar</option>'+state.apps.map(a=>`<option value="${a.id}">${esc(a.vacante?.empresa)} · ${esc(a.vacante?.titulo)}</option>`).join('');$('#events-list').innerHTML=state.events.map(e=>`<article class="panel"><span class="badge ${e.confirmed?'success':'warning'}">${e.confirmed?'Confirmado':'Por confirmar'}</span><h3>${esc(e.title)}</h3><p>${esc(dateLabel(e.start))}<br>${esc(e.location)}</p><p>${e.sync_status==='synced'?'Sincronizado con Google Calendar':'Guardado en JobFlow'}</p><div class="actions"><a class="button secondary" href="/api/career/events/${e.id}/ics">Descargar evento</a><button class="button secondary" data-edit-event="${e.id}">Editar</button>${e.confirmed?`<button class="button secondary" data-sync-event="${e.id}">Sincronizar Google</button>`:''}</div></article>`).join('')||empty('Una agenda para llegar preparado','Añade tu próxima entrevista o un recordatorio de seguimiento.');}
+function localTime(value,tz){return new Intl.DateTimeFormat('sv-SE',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(value)).replace(' ','T');}
+$('#events-list').onclick=async e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.editEvent){const ev=state.events.find(x=>x.id===b.dataset.editEvent),f=$('#event-form');for(const k of ['id','title','application_id','timezone','kind','source','location'])f.elements[k].value=ev[k]??'';for(const k of ['start','end'])f.elements[k].value=localTime(ev[k],ev.timezone);f.elements.confirmed.checked=ev.confirmed;$('#event-form-title').textContent='Editar evento';f.scrollIntoView({behavior:'smooth'});}else if(b.dataset.syncEvent)await busy(b,async()=>{await api('/api/google/events/'+b.dataset.syncEvent+'/sync','POST');await refresh();renderAgenda();notice('Evento sincronizado. No se enviaron invitaciones.');})(e);};
+$('#cancel-event').onclick=()=>{$('#event-form').reset();$('#event-form-title').textContent='Añadir un evento';};
+bindForm('#event-form',async()=>{const f=$('#event-form'),d=formObject(f),id=d.id;delete d.id;d.profile_id=state.pid;d.application_id=d.application_id?Number(d.application_id):null;d.confirmed=f.elements.confirmed.checked;for(const k of ['start','end'])d[k]+=(d.timezone==='UTC'?'+00:00':'-05:00');await api('/api/career/events'+(id?'/'+id:''),id?'PUT':'POST',d);f.reset();await refresh();renderAgenda();notice('Evento guardado. Puedes descargarlo o sincronizarlo con Google.');});
+async function connections(){const status=await api(`/api/google/${state.pid}/status`),labels={gmail_read:['Gmail · Selección','Lee correos recientes relacionados con procesos laborales.'],gmail_send:['Gmail · Resumen diario','Envía tus avances a tu propia cuenta conectada.'],calendar:['Google Calendar','Añade o actualiza eventos confirmados en tu calendario.']};$('#google-connections').innerHTML=Object.entries(status.services).map(([service,s])=>`<article class="panel"><span class="badge ${s.connected?'success':'warning'}">${s.connected?'Conectado':s.configured?'Sin conectar':'Configuración pendiente'}</span><h2>${labels[service][0]}</h2><p>${labels[service][1]}</p>${s.email?`<p class="connection-account">${esc(s.email)}</p>`:''}<button class="button secondary" data-service="${service}" data-connected="${s.connected}" ${!s.connected&&!s.configured?'disabled':''}>${s.connected?'Desconectar':'Conectar con Google'}</button>${!s.configured?'<p>El administrador debe configurar las credenciales Google de JobFlow.</p>':''}</article>`).join('');if(status.last_sync)$('#google-connections').insertAdjacentHTML('beforeend',`<p>Última revisión: ${esc(dateLabel(status.last_sync))}</p>`);if(status.scheduler_error)notice(status.scheduler_error,true);const f=$('#settings-form');for(const [k,v] of Object.entries(state.setup.settings))if(f.elements[k]){if(f.elements[k].type==='checkbox')f.elements[k].checked=v;else f.elements[k].value=v;}$('#scheduler-note').textContent=status.scheduler_configured?'El servicio está configurado para revisar tareas cada minuto mientras el servidor permanezca activo.':'La programación requiere activar el servicio de tareas. Mientras tanto puedes sincronizar y enviar el resumen manualmente.';$('#send-digest').disabled=!status.services.gmail_send.connected;$('#sync-gmail').disabled=!status.services.gmail_read.connected;const mail=await api(`/api/google/${state.pid}/mail`);$('#mail-list').innerHTML=mail.map(m=>`<details><summary>${esc(m.subject)}</summary><p>${esc(m.from)}</p><p class="description">${esc(m.body)}</p><a class="button secondary" href="#agenda">Revisar fecha y añadir a agenda</a></details>`).join('')||empty('Tu seguimiento, en un lugar','Conecta Gmail para importar correos. También puedes pegar uno abajo.');const manual=await api('/api/emails');$('#manual-mails').innerHTML=(Array.isArray(manual)?manual:[]).slice(0,15).map(m=>`<details><summary>${esc(m.asunto)}</summary><p>${esc(m.remitente)}</p><p class="description">${esc(m.cuerpo||'')}</p></details>`).join('');}
+$('#google-connections').onclick=async e=>{const b=e.target.closest('[data-service]');if(!b)return;await busy(b,async()=>{if(b.dataset.connected==='true'){await api(`/api/google/${state.pid}/${b.dataset.service}/disconnect`,'POST');await refresh();await connections();notice('Conexión desactivada para este perfil.');}else{const r=await api(`/api/google/${state.pid}/${b.dataset.service}/connect`,'POST');location.assign(r.url);}})(e);};
+bindForm('#settings-form',async()=>{const f=$('#settings-form'),d=formObject(f);for(const k of ['digest_enabled','gmail_sync_enabled','calendar_auto'])d[k]=f.elements[k].checked;await api(cpath('settings'),'PUT',d);theme(d.theme);await refresh();notice('Preferencias guardadas.');});
+$('#send-digest').onclick=busy($('#send-digest'),async()=>{const r=await api(`/api/google/${state.pid}/digest/send`,'POST');notice(r.duplicate?'El resumen de hoy ya tiene un intento registrado: '+r.status:'Resumen enviado a '+r.recipient);});
+$('#sync-gmail').onclick=busy($('#sync-gmail'),async()=>{const r=await api(`/api/google/${state.pid}/gmail/sync`,'POST');await connections();notice(`${r.imported} correos importados.${r.more_available?' Hay más resultados; revisa Gmail para completar la revisión.':''}`);});
+bindForm('#email-form',async()=>{await api('/api/emails/import','POST',formObject($('#email-form')));await connections();notice('Correo clasificado y guardado. Revisa sus datos antes de actuar.');});
+$('#avatar').onclick=()=>location.hash='profile';$('#profile-picker').onchange=busy(null,async()=>{state.pid=Number($('#profile-picker').value);$('#job-results').innerHTML='';$('#event-form').reset();$('#notice').hidden=true;if(location.hash.startsWith('#application/'))location.hash='applications';else await route();});window.addEventListener('hashchange',route);
+(async()=>{try{await profiles();await route();}catch(e){notice(e.message,true);}})();
