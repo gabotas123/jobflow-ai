@@ -1,52 +1,43 @@
-"""Busqueda de empleo en Bumeran, Computrabajo, LinkedIn e Indeed.
+"""Busqueda de empleo en Bumeran, Computrabajo y LinkedIn (paginas publicas).
 
-Estrategia honesta y robusta:
-  1) Se construye la URL de busqueda directa por plataforma (siempre utilizable).
-  2) Intento de captura con Playwright (navegador real Chromium + User-Agent).
-  3) Si la plataforma bloquea (403 / captcha / authwall), se reporta el estado y
-     se devuelve el enlace directo: la busqueda real se hace en el navegador del
-     usuario, donde tiene su sesion (LinkedIn especialmente: el bot no automatiza
-     su busqueda por ToS).
+  * Bumeran: API publica de avisos (incluye descripcion completa y modalidad).
+  * Computrabajo: tarjetas del listado publico.
+  * LinkedIn: listado publico de empleos (sin sesion; LinkedIn no se automatiza).
+  * Indeed bloquea la lectura automatica: solo se entrega el enlace de busqueda.
 
-Extraccion de resultados: JSON-LD (JobPosting) cuando existe + regex por
-plataforma. Ningun resultado se inventa: si no se puede confirmar, no se lista.
+Cada resultado se evalua con el perfil confirmado. Ningun resultado se inventa:
+si un portal no responde, se informa y se ofrece el enlace original.
 """
 from __future__ import annotations
 
-import json
+import html as html_lib
 import re
-import unicodedata
 import urllib.parse
-import urllib.request
-from typing import Dict, List, Optional
+from datetime import date, timedelta
+from typing import Dict, List
 
-UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+from .job_extract import ExtractionError, bumeran_search, fetch_public, from_bumeran, html_to_text, job_postings, from_posting
+from .workflow import norm
 
 PLATFORMS = {
-    "bumeran": {"nombre": "Bumeran", "modo": "autofill"},
-    "computrabajo": {"nombre": "Computrabajo", "modo": "autofill"},
+    "bumeran": {"nombre": "Bumeran", "modo": "postulacion_automatica"},
+    "computrabajo": {"nombre": "Computrabajo", "modo": "postulacion_automatica"},
     "linkedin": {"nombre": "LinkedIn", "modo": "copiloto"},
-    "indeed": {"nombre": "Indeed", "modo": "busqueda"},
+    "indeed": {"nombre": "Indeed", "modo": "enlace"},
 }
 
 
-def _norm(t: str) -> str:
-    t = unicodedata.normalize("NFD", t)
-    return "".join(c for c in t if unicodedata.category(c) != "Mn").lower()
-
-
 def slugify(s: str) -> str:
-    return "-".join(_norm(s).split())[:60]
+    return "-".join(re.sub(r"[^a-z0-9 ]", " ", norm(s)).split())[:60]
 
 
 def search_url(platform: str, query: str, location: str = "") -> str:
-    loc = location or "Lima"
+    loc = (location or "Lima").split(",")[0].strip()
     q = urllib.parse.quote(query)
     if platform == "bumeran":
-        return f"https://www.bumeran.com.pe/empleos-{slugify(query)}-{slugify(loc)}.html"
+        return f"https://www.bumeran.com.pe/empleos-busqueda-{slugify(query)}.html"
     if platform == "computrabajo":
-        return f"https://www.computrabajo.com.pe/trabajo-de-{slugify(query)}"
+        return f"https://pe.computrabajo.com/trabajo-de-{slugify(query)}-en-{slugify(loc)}"
     if platform == "linkedin":
         return f"https://pe.linkedin.com/jobs/search?keywords={q}&location={urllib.parse.quote(loc)}"
     if platform == "indeed":
@@ -54,230 +45,134 @@ def search_url(platform: str, query: str, location: str = "") -> str:
     return ""
 
 
-def fetch_http(url: str, timeout: int = 10) -> Optional[str]:
-    """Intento simple (urllib + UA). None si falla."""
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "es-PE,es;q=0.9"})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read()
-            return raw.decode("utf-8", errors="ignore")
-    except Exception:
-        return None
+def _text(fragment: str) -> str:
+    return re.sub(r"\s+", " ", html_lib.unescape(re.sub(r"<[^>]+>", " ", fragment or ""))).strip()
 
 
-def fetch_playwright(url: str, timeout: int = 20) -> Optional[dict]:
-    """Captura con Playwright (chromium headless): html + tarjetas extraidas del DOM.
-
-    Devuelve None si playwright no esta instalado o falla. Las tarjetas se
-    extraen con JS en el navegador (post-render), por lo que funciona en
-    sitios SPA (Bumeran, Indeed) y en SSR.
-    """
-    try:
-        from playwright.sync_api import sync_playwright
-    except Exception:
-        return None
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page(user_agent=UA, locale="es-PE")
-            page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
-            try:
-                page.wait_for_load_state("networkidle", timeout=6000)
-            except Exception:
-                pass
-            page.wait_for_timeout(1500)
-            extracted = page.evaluate(
-                """() => {
-                    const out = [];
-                    const seen = new Set();
-                    const isJob = (href) => /(empleos-[^"]*\\d|trabajo-[^"]*\\d|\\/viewjob|\\/rc\\/clk|\\/jobs\\/view\\/)/i.test(href);
-                    const anchors = Array.from(document.querySelectorAll('a[href]'));
-                    for (const a of anchors) {
-                        const href = a.href || '';
-                        if (!isJob(href)) continue;
-                        const t = (a.textContent || '').trim();
-                        if (t.length >= 8 && t.length <= 140 && !seen.has(t)) {
-                            seen.add(t);
-                            const card = a.closest('article, li, div[data-testid], .job, .card');
-                            const txt = card ? (card.textContent || '') : '';
-                            const companyMatch = txt.replace(t, '').match(/[A-ZÁÉÍÓÚÑ][^\\n|]{3,40}/);
-                            out.push({title: t, link: href,
-                                      company: companyMatch ? companyMatch[0].trim() : ''});
-                        }
-                    }
-                    return out.slice(0, 20);
-                }"""
-            )
-            html = page.content()
-            browser.close()
-            return {"html": html, "extracted": extracted or []}
-    except Exception:
-        return None
+def relative_date(label: str):
+    low = norm(label)
+    if re.search(r"hora|minuto|hoy|segundo", low):
+        return date.today().isoformat()
+    if "ayer" in low:
+        return (date.today() - timedelta(days=1)).isoformat()
+    m = re.search(r"(\d+)\s*(dia|semana|mes)", low)
+    if m:
+        days = int(m.group(1)) * {"dia": 1, "semana": 7, "mes": 30}[m.group(2)]
+        return (date.today() - timedelta(days=days)).isoformat()
+    return None
 
 
 # --------------------------------------------------------------------------- #
-#  Parseo de resultados
+#  Lectores por portal
 # --------------------------------------------------------------------------- #
-def _ld_jobs(html: str) -> List[dict]:
-    """Busca bloques application/ld+json del tipo JobPosting."""
-    jobs: List[dict] = []
-    for m in re.finditer(r'<script[^>]+type="application/ld\+json"[^>]*>(.*?)</script>', html, re.S):
-        try:
-            data = json.loads(m.group(1))
-        except Exception:
+def parse_computrabajo(page: str) -> List[dict]:
+    out = []
+    for card in re.findall(r'<article[^>]*class="[^"]*box_offer[^"]*"[^>]*>(.*?)</article>', page, re.S):
+        link = re.search(r'<h2[^>]*>\s*<a[^>]+href="([^"#]+)[^"]*"[^>]*>(.*?)</a>', card, re.S)
+        if not link:
             continue
-        items = data if isinstance(data, list) else [data]
-        for it in items:
-            if not isinstance(it, dict) or it.get("@type") not in ("JobPosting", "JobPosting".lower()):
-                continue
-            title = (it.get("title") or "").strip()
-            company = ""
-            org = it.get("hiringOrganization")
-            if isinstance(org, dict):
-                company = (org.get("name") or "").strip()
-            location = it.get("jobLocation")
-            if isinstance(location, list):
-                location = location[0] if location else None
-            loc_txt = ""
-            if isinstance(location, dict):
-                addr = location.get("address", {})
-                if isinstance(addr, dict):
-                    loc_txt = " ".join(str(a) for a in [addr.get("addressLocality"),
-                                                        addr.get("addressRegion")] if a)
-            url = (it.get("url") or "").strip()
-            if title:
-                jobs.append({"title": title, "company": company, "location": loc_txt, "link": url})
-    return jobs
+        company = re.search(r'<a[^>]+offer-grid-article-company-url[^>]*>(.*?)</a>', card, re.S) \
+            or re.search(r'<p class="dFlex[^"]*"[^>]*>(.*?)</p>', card, re.S)
+        paragraphs = re.findall(r'<p class="fs16 fc_base mt5"[^>]*>(.*?)</p>', card, re.S)
+        when = re.search(r'<p class="fs13 fc_aux[^"]*"[^>]*>(.*?)</p>', card, re.S)
+        out.append({
+            "titulo": _text(link.group(2)),
+            "empresa": re.sub(r"^\d+[,.]\d\s*", "", _text(company.group(1))) if company else "",
+            "ubicacion": _text(paragraphs[-1]) if paragraphs else "",
+            "fecha_publicacion": relative_date(_text(when.group(1))) if when else None,
+            "url": urllib.parse.urljoin("https://pe.computrabajo.com", link.group(1)),
+        })
+    return out
 
 
-def _regex_jobs(html: str, platform: str) -> List[dict]:
-    """Heuristicas por plataforma cuando no hay JSON-LD."""
-    jobs: List[dict] = []
+def parse_linkedin(page: str) -> List[dict]:
+    out = []
+    for card in re.split(r'<div class="base-card[^"]*job-search-card', page)[1:]:
+        link = re.search(r'class="base-card__full-link[^"]*"[^>]+href="([^"?]+)', card)
+        title = re.search(r'base-search-card__title[^>]*>(.*?)</h3>', card, re.S)
+        if not link or not title:
+            continue
+        company = re.search(r'base-search-card__subtitle[^>]*>(.*?)</h4>', card, re.S)
+        location = re.search(r'job-search-card__location[^>]*>(.*?)</span>', card, re.S)
+        posted = re.search(r'<time[^>]+datetime="(\d{4}-\d{2}-\d{2})"', card)
+        out.append({"titulo": _text(title.group(1)), "empresa": _text(company.group(1)) if company else "",
+                    "ubicacion": _text(location.group(1)) if location else "",
+                    "fecha_publicacion": posted.group(1) if posted else None,
+                    "url": html_lib.unescape(link.group(1))})
+    return out
+
+
+def parse_jsonld(page: str) -> List[dict]:
+    return [{**from_posting(p), "url": p.get("url", "")} for p in job_postings(page)]
+
+
+def fetch_listing(platform: str, query: str, location: str) -> List[dict]:
+    if platform == "bumeran":
+        loc = norm((location or "Lima").split(",")[0])
+        avisos = [from_bumeran(a) for a in bumeran_search(query, 40)]
+        local = [a for a in avisos if loc in norm(a["ubicacion"])]
+        return local or avisos
+    response = fetch_public(search_url(platform, query, location))
+    if response.status_code != 200:
+        raise ExtractionError("El portal bloqueó la búsqueda automática.")
     if platform == "computrabajo":
-        for m in re.finditer(
-                r'href="(/trabajo-[^"]+)"[^>]*>\s*<h2[^>]*>(.*?)</h2>.*?'
-                r'(?:<span class="[^"]*company[^"]*"[^>]*>(.*?)</span>)?', html, re.S):
-            title = re.sub(r"<[^>]+>", "", m.group(2)).strip()
-            company = re.sub(r"<[^>]+>", "", m.group(3) or "").strip() if m.group(3) else ""
-            if title:
-                jobs.append({"title": title, "company": company, "location": "", "link": m.group(1)})
-    if platform == "indeed":
-        for m in re.finditer(r'href="(/viewjob\?[^"]+)"[^>]*>(?:<[^>]+>)*([^<]{3,90})<', html, re.S):
-            title = m.group(2).strip()
-            if title:
-                jobs.append({"title": title, "company": "", "location": "", "link": m.group(1)})
-    return jobs
-
-
-def parse_results(html: str, platform: str, base_url: str) -> List[dict]:
-    jobs = _ld_jobs(html) or _regex_jobs(html, platform)
-    out, seen = [], set()
-    for j in jobs:
-        key = _norm(j["title"] + "|" + j.get("company", ""))
-        if key in seen:
-            continue
-        seen.add(key)
-        link = j.get("link", "")
-        if link.startswith("/"):
-            link = base_url.rstrip("/") + link
-        out.append({"titulo": j.get("title"), "empresa": j.get("company") or "—",
-                    "ubicacion": j.get("location") or "—", "link": link})
-    return out[:15]
+        return parse_computrabajo(response.text) or parse_jsonld(response.text)
+    if platform == "linkedin":
+        return parse_linkedin(response.text)
+    raise ExtractionError("Este portal no permite la lectura automática. Abre el enlace de búsqueda.")
 
 
 # --------------------------------------------------------------------------- #
 #  Busqueda principal
 # --------------------------------------------------------------------------- #
 def build_query(profile) -> str:
-    """Construye la consulta de busqueda a partir del cargo principal del perfil.
-
-    Ej.: 'Analista de Créditos BM' -> 'analista de creditos'.
-    Evita contaminar la busqueda con nombres de herramientas.
-    """
+    """Consulta a partir del cargo principal del perfil (sin nombres de herramientas)."""
     cargos = [e.get("cargo", "") for e in profile.experiencia if e.get("cargo")]
     if not cargos:
         return "finanzas"
-    cargo = cargos[0]
-    low = _norm(cargo)
+    low = norm(cargos[0])
     low = re.sub(r"\b(practicante|pro|junior|sr|senior|semi|confidencial|bm|latam|norte)\b", "", low)
-    low = re.sub(r"\s+", " ", low).strip(" -")
-    words = low.split()
-    # descartar siglas/abreviaturas cortas y quedar con el rol principal
-    clean = [w for w in words if len(w) > 2]
-    query = " ".join(clean[:5])
-    return query or "finanzas"
-
-
-def quick_match(profile, result: dict) -> int:
-    from .workflow import evaluate
-    return evaluate(profile, {"titulo": result.get("titulo", ""),
-                              "ubicacion": result.get("ubicacion", "")})["compatibilidad"]
+    words = [w for w in re.sub(r"\s+", " ", low).strip(" -").split() if len(w) > 2]
+    return " ".join(words[:5]) or "finanzas"
 
 
 def search(profile, platform: str, query: str, location: str = "") -> Dict:
-    url = search_url(platform, query, location)
+    from .workflow import evaluate, safe_url
     entry = {
         "plataforma": platform, "nombre": PLATFORMS.get(platform, {}).get("nombre", platform),
         "modo": PLATFORMS.get(platform, {}).get("modo", ""), "query": query,
-        "url": url, "estado": "sin_datos", "resultados": [], "nota": "",
+        "url": search_url(platform, query, location), "estado": "sin_datos", "resultados": [], "nota": "",
     }
-    html = fetch_http(url)
-    extracted: List[dict] = []
-    if html and any(marker in html.lower() for marker in ("security check", "captcha", "verify you are human")):
-        entry["estado"] = "protegida"
-        entry["nota"] = "Verificación detectada. Abre el enlace personalmente en el portal."
+    try:
+        jobs = fetch_listing(platform, query, location)
+    except ExtractionError as exc:
+        entry.update(estado="requiere_navegador", nota=str(exc))
         return entry
-    pw = fetch_playwright(url)
-    if pw:
-        html = pw.get("html") or html
-        extracted = pw.get("extracted") or []
-    if not html:
-        entry["estado"] = "protegida"
-        entry["nota"] = ("El sitio bloqueo la captura automatizada. Abre el enlace de busqueda "
-                         "en tu navegador (con tu sesion) para ver las vacantes reales.")
-        return entry
-    if "Security Check" in html or len(re.sub(r"<[^>]+>", "", html).strip()) < 60:
-        entry["estado"] = "protegida"
-        entry["nota"] = "Verificacion anti-bot detectada. Usa el enlace de busqueda en tu navegador."
-        return entry
-
-    results = parse_results(html, platform, url)
-    for x in extracted:  # tarjetas del DOM (post render JS)
-        if not x.get("title"):
-            continue
-        results.append({"titulo": x["title"], "empresa": x.get("company") or "—",
-                        "ubicacion": "—", "link": x.get("link", "")})
-    seen: set = set()
-    deduped = []
-    for r in results:
-        k = _norm(r["titulo"] + "|" + r.get("empresa", ""))
-        if k in seen:
-            continue
-        seen.add(k)
-        deduped.append(r)
-    results = deduped[:15]
-    if not results:
-        entry["estado"] = "requiere_navegador"
-        entry["nota"] = "No se extrajeron tarjetas de esta pagina. Abre el enlace en tu navegador."
-        return entry
-    from .workflow import evaluate, safe_url
-    valid = []
-    for r in results:
+    seen, results, excluded = set(), [], 0
+    for job in jobs:
         try:
-            r["link"] = safe_url(r.get("link", ""))
+            job["url"] = safe_url(job.get("url", ""))
         except ValueError:
             continue
-        if not r["link"]:
+        key = norm(job.get("titulo", "") + "|" + job.get("empresa", "") + "|" + job.get("ubicacion", ""))
+        if not job["url"] or not job.get("titulo") or key in seen:
             continue
-        analysis = evaluate(profile, r)
-        r["match"] = analysis["compatibilidad"]
-        r["analisis"] = analysis
-        if not analysis["requisito_excluyente"]:
-            valid.append(r)
-    results = valid
-    results.sort(key=lambda r: r["match"], reverse=True)
-    entry["estado"] = "ok"
-    entry["resultados"] = results
+        seen.add(key)
+        if job.get("descripcion"):
+            from .job_extract import enrich
+            enrich(job)
+        job["plataforma"] = platform
+        analysis = evaluate(profile, job)
+        if analysis["requisito_excluyente"]:
+            excluded += 1
+            continue
+        results.append({**job, "link": job["url"], "match": analysis["compatibilidad"], "analisis": analysis,
+                        "descripcion": (job.get("descripcion") or "")[:600]})
+    results.sort(key=lambda r: (r["match"], r.get("fecha_publicacion") or ""), reverse=True)
+    entry["resultados"] = results[:15]
+    entry["estado"] = "ok" if results else "sin_resultados"
+    entry["nota"] = (f"{len(results)} vacantes compatibles" + (f"; {excluded} descartadas por nivel, funciones o requisitos." if excluded else ".")
+                     if results else "No hubo vacantes compatibles en esta búsqueda." + (f" Se descartaron {excluded}." if excluded else ""))
     return entry
 
 

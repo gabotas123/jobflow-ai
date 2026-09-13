@@ -78,7 +78,7 @@ def application(db,aid):
     if not a:raise HTTPException(404,'Candidatura no encontrada')
     return a,db.get(Vacante,a.vacante_id)
 
-DEFAULT_SETTINGS={'timezone':'America/Lima','digest_time':'21:00','digest_enabled':False,'gmail_sync_enabled':False,'calendar_auto':False,'theme':'system'}
+DEFAULT_SETTINGS={'timezone':'America/Lima','digest_time':'21:00','digest_enabled':False,'gmail_sync_enabled':False,'calendar_auto':False,'theme':'light'}
 class Confirmation(BaseModel):
     profile_hash:str
     accepted:bool
@@ -208,7 +208,7 @@ class SettingsInput(BaseModel):
     digest_enabled:bool=False
     gmail_sync_enabled:bool=False
     calendar_auto:bool=False
-    theme:Literal['light','dark','system']='system'
+    theme:Literal['light','dark','system']='light'
     @field_validator('timezone')
     @classmethod
     def timezone_valid(cls,v):

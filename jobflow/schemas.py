@@ -127,6 +127,10 @@ class JobImportRequest(BaseModel):
     fecha_publicacion: Optional[str] = None
 
 
+class JobExtractRequest(BaseModel):
+    url: str = Field(min_length=8, max_length=2000)
+
+
 class ApplicationUpdateRequest(BaseModel):
     cv_version_id: Optional[int] = None
     estado: str

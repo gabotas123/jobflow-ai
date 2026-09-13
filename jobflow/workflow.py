@@ -65,6 +65,10 @@ DOMAINS = {
 }
 
 
+CAREERS = ("economia", "contabilidad", "administracion", "finanzas", "ingenieria industrial", "ingenieria economica",
+           "estadistica", "negocios", "marketing", "derecho", "psicologia", "sistemas", "comunicaciones")
+
+
 def select_cv(title):
     t = norm(title)
     for domain, label in (("cobranzas", "cobranzas"), ("gestion", "gestion"), ("datos", "datos")):
@@ -119,7 +123,10 @@ def evaluate(profile, job):
     add("Herramientas", 15, round(15 * (len(tools)-len(missing))/len(tools)) if tools else 0,
         "Comparación con herramientas declaradas; el nivel debe revisarse", bool(tools))
     education = norm(job.get("formacion"))
-    edu_ok = bool(education) and any(education in norm(e) for e in profile.educacion)
+    studied = norm(" ".join(profile.educacion))
+    careers = [c for c in CAREERS if c in education]
+    edu_ok = bool(education) and (any(education in norm(e) for e in profile.educacion)
+                                  or any(c in studied for c in careers))
     add("Formación", 10, 10 if edu_ok else 0, "Coincidencia textual con formación declarada", bool(education))
     junior = bool(re.search(r"\b(asistente|junior|analista)\b", title))
     add("Seniority", 10, 10 if junior and not blocks else 0, "Nivel indicado en el título", junior or bool(blocks))

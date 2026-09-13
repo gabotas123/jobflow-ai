@@ -40,7 +40,7 @@ from .gap_analysis import analyze as run_gap_analysis
 from .knowledge import build_gabriel
 from .config import settings
 from .workflow import ApplicationDetail, AuditEvent, evaluate, register, safe_url
-from .schemas import JobImportRequest, ApplicationUpdateRequest, EmailImportRequest
+from .schemas import JobImportRequest, JobExtractRequest, ApplicationUpdateRequest, EmailImportRequest
 from .schemas import (
     ActivePuestoRequest, AnalysisRequest, ApproveRequest, EmailClassifyRequest,
     FormRunRequest, GenerateRequest, PlatformConnectRequest, PostulacionRequest,
@@ -58,6 +58,9 @@ ALLOWED_SUFFIXES = {".pdf", ".docx", ".txt"}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     ensure_seed()
+    from .portal_accounts import browser_status, ensure_worker, recover_interrupted
+    if recover_interrupted() and browser_status()[0]:
+        ensure_worker()
     import threading
     stop = threading.Event()
     worker = None
@@ -73,11 +76,13 @@ async def lifespan(app: FastAPI):
             worker.join(timeout=2)
 
 
-app = FastAPI(title="JobFlow AI", version="0.5.0", lifespan=lifespan)
+app = FastAPI(title="JobFlow AI", version="0.6.0", lifespan=lifespan)
 from .career import router as career_router, require_ready
 from .google_integration import router as google_router
+from .portal_accounts import router as portals_router
 app.include_router(career_router)
 app.include_router(google_router)
+app.include_router(portals_router)
 # Single owner application: use Codespaces private forwarding or HTTP Basic.
 from .security import AccessMiddleware
 app.add_middleware(AccessMiddleware)
@@ -592,7 +597,16 @@ def api_applications(profile_id: Optional[int] = None, db: Session = Depends(get
 
 @app.get("/healthz")
 def health():
-    return {"status": "ok", "version": "0.5.0"}
+    return {"status": "ok", "version": "0.6.0"}
+
+
+@app.post("/api/jobs/extract")
+def extract_job_posting(req: JobExtractRequest):
+    from .job_extract import ExtractionError, extract_job
+    try:
+        return extract_job(req.url)
+    except (ExtractionError, ValueError) as exc:
+        raise HTTPException(422, str(exc))
 
 
 @app.post("/api/jobs/import", status_code=201)

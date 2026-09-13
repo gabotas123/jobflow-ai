@@ -5,6 +5,20 @@ Todos los cambios del proyecto, con fecha y commit. El historial vivo está en:
 
 ---
 
+## 09-13 · v0.6 — Lectura de avisos, cuentas de empleo y postulación automática
+- **Búsqueda real**: Bumeran (API pública), Computrabajo y LinkedIn vuelven a
+  devolver vacantes (antes 0 resultados en todos los portales, también en Render).
+- **Leer aviso por enlace** (`POST /api/jobs/extract`): empresa, puesto,
+  descripción, ubicación, modalidad, fecha, herramientas, años y formación.
+  Solo lee páginas públicas y bloquea direcciones internas.
+- **Cuentas de Bumeran y Computrabajo**: inicias sesión en una ventana real del
+  portal; JobFlow guarda solo la sesión cifrada, nunca la contraseña.
+- **Postulación automática** individual o por lote con una autorización. Se
+  detiene ante CAPTCHA, pruebas, términos o preguntas sin dato confirmado; marca
+  "postulada" solo con la confirmación del portal y guarda captura. Un envío
+  incierto nunca se repite solo. Detalle en `CAMBIOS_V06.md`.
+- **Paleta verde claro** (modo claro por defecto).
+
 ## 09-06 01:10 · `09a6c9c` — fix crítico: Python de la Microsoft Store
 - El instalador ahora **detecta el Python de la Microsoft Store** (no puede crear
   entornos virtuales) y lo **reemplaza automáticamente por el Python oficial** de

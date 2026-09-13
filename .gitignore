@@ -11,6 +11,9 @@ data/*.db-journal
 data/uploads/
 data/*.pdf
 data/*.docx
+# Sesiones cifradas de portales, su clave y capturas de postulaciones
+data/.jobflow_key
+data/evidencias/
 
 # Credenciales / configuración local (contiene API keys y SMTP)
 .env
