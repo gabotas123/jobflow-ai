@@ -27,9 +27,9 @@ experiencias cuantos cuantas anos ano meses mes tiempo cuanto nivel indica indiq
 alguna algun algunos algunas previa previo comprobable minimo minima menos mas similar similares puesto puestos
 cargo cargos area areas rubro sector empresa empresas funciones funcion procesos proceso trabajo trabajando
 como para sobre desde hasta este esta estos estas otro otra otros otras donde cual cuales que tus sus una uno
-unos unas del las los con por sin entre usar uso utilizando utilizado herramienta herramientas analisis
+unos unas del las los con por sin entre usar uso utilizando utilizado herramienta herramientas analisis areas sectores sector rubros indica indique
 """.split())
-GENERIC_YEARS = ("area", "puesto", "similar", "cargo", "rubro", "funciones", "total", "laboral", "profesional",
+GENERIC_YEARS = ("area", "areas", "puesto", "similar", "cargo", "rubro", "funciones", "total", "laboral", "profesional",
                  "relaci", "posici", "vacant", "rol", "afin", "afines", "requer", "indiqu", "mencio", "detall")
 YEARS_Q = re.compile(r"\b(cuant[oa]s? (anos|meses|tiempo)|anos de experiencia|tiempo de experiencia|anos trabajando)\b")
 YESNO_Q = re.compile(r"^(tienes|tiene|cuentas con|cuenta con|posees|posee|has (trabajado|realizado|tenido|gestionado|manejado|usado|utilizado)|"
@@ -217,7 +217,8 @@ def answer_question(label: str, field_type: str, options: list[str], profile, to
         if stems:
             found = _evidence(profile, stems)
             matched = [s for s in stems if any(e for e, _ in found[s] if e)]
-            if not matched or (strict and len(matched) < len(stems)):
+            # Years are claimed only when every topic of the question has job evidence.
+            if len(matched) < len(stems):
                 return {"reason": "Tu CV no muestra experiencia laboral en ese tema. Respóndela tú."}
             exps = list({id(e): e for s in matched for e, _ in found[s] if e}.values())
         if not exps:

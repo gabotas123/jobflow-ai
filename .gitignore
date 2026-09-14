@@ -36,3 +36,4 @@ pip_install.log
 *.bundle
 *.zip
 data/*.respaldo-*
+data/worker.lock

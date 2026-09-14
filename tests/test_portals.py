@@ -590,3 +590,98 @@ def test_test_inside_application_form_still_blocks(portal_page):
     out = portals.apply_on_page(page, 'bumeran', 'https://www.bumeran.com.pe/empleos/analista-1.html',
                                 lambda fields: portals.plan_fields(fields, cv_profile(), 'Analista', {}))
     assert out['status'] == 'bloqueada' and out['reason'] == 'evaluacion', out
+
+
+# --------------------------------------------------------------------------- #
+#  Computrabajo, botones que cambian y postulación masiva (v0.8)
+# --------------------------------------------------------------------------- #
+def _page(body):
+    return '<!doctype html><html><head><meta charset="utf-8"></head><body>' + body + '</body></html>'
+
+
+def test_fixed_layer_with_fields_does_not_hide_the_page_apply_button(portal_page):
+    # Computrabajo keeps a fixed layer with form fields; «Postularme» is a link outside it.
+    body = ('<div style="position:fixed;left:0;top:0;width:55vw;height:60vh;background:#fff">'
+            '<p>Crea tu alerta</p><input type="email" placeholder="Correo"><input type="text" placeholder="Puesto"></div>'
+            '<main style="margin-left:60vw"><h1>Analista de tesorería</h1>'
+            '<a class="b_primary big" href="#" id="apply" data-href-offer-apply="x">Postularme</a>'
+            '<p id="ok" style="display:none">¡Postulación enviada!</p></main>'
+            '<script>apply.onclick = e => { e.preventDefault(); ok.style.display = "block"; apply.remove(); };</script>')
+    page = portal_page(_page(body), path='/ofertas-de-trabajo/oferta-1', host='pe.computrabajo.com')
+    out = portals.apply_on_page(page, 'computrabajo', 'https://pe.computrabajo.com/ofertas-de-trabajo/oferta-1',
+                                lambda fields: portals.plan_fields(fields, cv_profile(), 'Analista', {}))
+    assert out['status'] == 'postulada' and out['trace']['clicks'] == ['Postularme'], out
+
+
+def test_button_rebuilt_while_typing_and_covered_by_cookie_banner(portal_page):
+    body = ('<main><h1>Analista</h1><p id="state"><button id="go">Postularme</button></p></main>'
+            '<div id="ov" style="display:none;position:fixed;inset:0;z-index:40;background:#0005"><div style="background:#fff;margin:40px auto;width:600px;padding:20px">'
+            '<p>¿Cuál es tu expectativa salarial?*</p><textarea id="t"></textarea><div id="slot"><button disabled>Responder</button></div></div></div>'
+            '<div style="position:fixed;left:0;right:0;bottom:0;height:260px;z-index:60;background:#123;color:#fff">Utilizamos cookies propias <button>Acepto</button></div>'
+            '<script>window.answer = null;'
+            'go.onclick = () => { state.innerHTML = "Postulado el 13/09/2026"; ov.style.display = "block"; };'
+            't.addEventListener("input", () => { slot.innerHTML = "<button id=\\"resp\\" style=\\"margin-top:900px\\">Responder</button>";'
+            '  document.getElementById("resp").onclick = () => { window.answer = t.value; ov.style.display = "none"; }; });'
+            '</script>')
+    page = portal_page(_page(body))
+    out = portals.apply_on_page(page, 'bumeran', 'https://www.bumeran.com.pe/empleos/analista-1.html',
+                                lambda fields: portals.plan_fields(fields, cv_profile(), 'Analista', {}))
+    assert out['status'] == 'postulada' and not out['questions'], out
+    assert page.evaluate('window.answer') == 'S/2,500–2,800'
+
+
+def _mass_jobs(pid):
+    return [
+        {'url': f'https://www.bumeran.com.pe/empleos/analista-de-cobranzas-{pid}001.html', 'titulo': 'Analista de cobranzas', 'empresa': 'Empresa Uno', 'plataforma': 'bumeran'},
+        {'url': f'https://www.bumeran.com.pe/empleos/gerente-de-finanzas-{pid}002.html', 'titulo': 'Gerente de finanzas', 'empresa': 'Empresa Dos', 'plataforma': 'bumeran'},
+        {'url': f'https://pe.linkedin.com/jobs/view/analista-de-creditos-at-tres-{pid}000003', 'titulo': 'Analista de créditos', 'empresa': 'Empresa Tres', 'plataforma': 'linkedin'},
+    ]
+
+
+def test_mass_apply_queues_compatible_jobs_and_explains_the_rest(client, monkeypatch):
+    monkeypatch.delenv('RENDER', raising=False)
+    pid = ready_profile(client)
+    connect(pid)  # Bumeran only
+    monkeypatch.setattr(portals, '_read_job', lambda job: ({**job.model_dump(), 'descripcion': 'Cobranzas B2B y Excel.'}, ''))
+    r = client.post(f'/api/portals/{pid}/mass-apply', json={'jobs': _mass_jobs(pid), 'min_score': 0})
+    assert r.status_code == 202, r.text
+    by_company = {x['empresa']: x for x in r.json()['results']}
+    assert r.json()['queued'] == 1 and by_company['Empresa Uno']['estado'] == 'en_cola'
+    assert by_company['Empresa Dos']['estado'] == 'descartada' and 'Nivel' in by_company['Empresa Dos']['motivo']
+    assert by_company['Empresa Tres']['estado'] == 'no_encolada' and 'LinkedIn' in by_company['Empresa Tres']['motivo']
+    again = client.post(f'/api/portals/{pid}/mass-apply', json={'jobs': _mass_jobs(pid)[:1]}).json()['results'][0]
+    assert again['estado'] == 'no_encolada'  # never queued twice
+
+    queue = client.get(f'/api/portals/{pid}/queue').json()
+    assert queue['active'] and queue['counts'] == {'en_cola': 1} and queue['items'][0]['position'] == 1
+    assert queue['items'][0]['empresa'] == 'Empresa Uno' and queue['remaining_today'] == queue['daily_limit'] - 1
+    assert client.post(f'/api/portals/{pid}/queue/stop').json()['cancelled'] == 1
+    assert client.get(f'/api/portals/{pid}/queue').json()['counts'] == {'cancelada': 1}
+
+
+def test_grouped_questions_answer_once_for_every_application(client, monkeypatch):
+    monkeypatch.delenv('RENDER', raising=False)
+    pid = ready_profile(client)
+    connect(pid)
+    question = {'key': '2', 'label': '¿Cuentas con disponibilidad para trabajar presencial en Surco?', 'type': 'textarea',
+                'required': True, 'action': 'pending', 'reason': 'Pregunta sobre horario, lugar o modalidad.'}
+    planned = [{'key': '1', 'label': 'Indica tus expectativas salariales', 'type': 'textarea', 'action': 'fill',
+                'value': 'S/2,500', 'source': 'Perfil confirmado'}]
+    apps = []
+    for n in range(2):
+        aid = import_job(client, pid, f'https://www.bumeran.com.pe/empleos/analista-grupo-{pid}{n}.html', f'Analista de cobranzas {n}')
+        run = client.post(f'/api/portals/applications/{aid}/apply', json={}).json()
+        db = SessionLocal()
+        portals.finish(db, db.get(portals.AutoApplyRun, run['id']),
+                       {'status': 'postulada', 'reason': 'preguntas_pendientes', 'evidence': 'Postulado el 13/09/2026',
+                        'questions': [question], 'planned': planned, 'trace': {'clicks': ['Postularme'], 'filled': []}})
+        db.close()
+        apps.append(aid)
+    groups = client.get(f'/api/portals/{pid}/questions').json()['questions']
+    mine = [g for g in groups if 'Surco' in g['label']]
+    assert len(mine) == 1 and sorted(a['id'] for a in mine[0]['applications']) == sorted(apps)
+    r = client.post(f'/api/portals/{pid}/questions', json={'answers': {mine[0]['key']: 'Sí, puedo trabajar presencial en Surco.'}})
+    assert r.json() == {'approved': 2, 'queued': 2, 'partial': 0}, r.text
+    runs = [client.get(f'/api/portals/applications/{aid}/runs').json()['runs'][0] for aid in apps]
+    assert all(run['status'] == 'en_cola' and run['mode'] == 'completar_preguntas' for run in runs)
+    assert not [g for g in client.get(f'/api/portals/{pid}/questions').json()['questions'] if 'Surco' in g['label']]

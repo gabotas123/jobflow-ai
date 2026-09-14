@@ -58,8 +58,9 @@ ALLOWED_SUFFIXES = {".pdf", ".docx", ".txt"}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     ensure_seed()
-    from .portal_accounts import browser_status, ensure_worker, recover_interrupted
-    if recover_interrupted() and browser_status()[0]:
+    from .portal_accounts import acquire_worker_lock, browser_status, ensure_worker, recover_interrupted
+    # Only the window that owns the queue may treat unfinished runs as interrupted.
+    if acquire_worker_lock() and recover_interrupted() and browser_status()[0]:
         ensure_worker()
     import threading
     stop = threading.Event()

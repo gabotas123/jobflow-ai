@@ -77,7 +77,7 @@ PREPARED_PORTALS = {
 BLOCKED_STATES = ("incompatible", "pendiente_revision_duplicado", "vencida", "rechazada")
 ACTIVE_RUNS = ("en_cola", "ejecutando")
 LOGIN_TIMEOUT = 600
-DAILY_LIMIT = int(os.getenv("JOBFLOW_APPLY_DAILY_LIMIT", "20"))
+DAILY_LIMIT = int(os.getenv("JOBFLOW_APPLY_DAILY_LIMIT", "30"))
 PORTAL_LIMITS = {"linkedin": int(os.getenv("JOBFLOW_LINKEDIN_DAILY_LIMIT", "8"))}
 
 
@@ -390,6 +390,10 @@ def login_worker(pid: int, portal: str) -> None:
 # --------------------------------------------------------------------------- #
 YES = ("si", "sí", "yes")
 # Profile facts that answer a question directly (the rest need CV evidence or your answer).
+# «Disponibilidad» only answers when they ask when you can start, not about schedules or on-site work.
+START_Q = re.compile(r"(disponibilidad( para| de)? (incorporar|incorporacion|iniciar|empezar|comenzar|ingresar|inicio)|"
+                     r"cuando (puedes|podrias) (empezar|iniciar|incorporarte)|disponibilidad inmediata|"
+                     r"^(cual es )?(tu |su )?disponibilidad\W*$|fecha (de|para) (inicio|incorporacion))")
 DIRECT_FACTS = {"movilidad", "disponibilidad", "salario_pretendido", "telefono", "email", "ubicacion", "linkedin",
                 "idioma_ingles", "modalidad", "formacion"}
 
@@ -441,7 +445,10 @@ def plan_fields(fields, profile, vacancy_title, approved: dict, cv_path: str | N
             combined = compound_answer(label, profile) or degree_answer(label, profile)
             if combined:
                 value, source = combined["value"], combined["source"]
-        if not value and m["canonical"] in DIRECT_FACTS and a["answer"] and not a["necesita_input"]:
+        direct = m["canonical"] in DIRECT_FACTS and not (m["canonical"] == "disponibilidad" and not START_Q.search(norm(label).lstrip("¿ ")))
+        if not value and m["canonical"] == "disponibilidad" and not direct:
+            reason = "Pregunta sobre horario, lugar o modalidad: respóndela tú y JobFlow la reutilizará."
+        if not value and direct and a["answer"] and not a["necesita_input"]:
             value, source = a["answer"], a.get("fuente") or "Perfil confirmado"
         if not value:
             # Questions about a specific topic are answered with CV evidence, never with generic text.
@@ -450,7 +457,7 @@ def plan_fields(fields, profile, vacancy_title, approved: dict, cv_path: str | N
                 value, source = deduced["value"], deduced["source"]
             elif deduced:
                 reason = deduced["reason"]
-            elif a["answer"] and not a["necesita_input"]:
+            elif a["answer"] and not a["necesita_input"] and (direct or m["canonical"] not in DIRECT_FACTS):
                 value, source = a["answer"], a.get("fuente") or "Perfil confirmado"
         if not value:
             plan.append({**step, "action": "pending" if required else "skip", "reason": reason,
@@ -577,7 +584,7 @@ FIELDS_JS = r"""
 """
 
 ACTION_JS = r"""
-([patterns, donePattern, genericOutsideDialog]) => {
+([patterns, donePattern, genericOutsideDialog, searchOutside]) => {
   const done = new RegExp(donePattern, 'i');
   const visible = el => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
     return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
@@ -585,23 +592,34 @@ ACTION_JS = r"""
   // Modals: standard markup, or any large fixed layer on top that holds a form (Bumeran does not mark it).
   let dialog = [...document.querySelectorAll('[role=dialog], dialog[open], .modal.show, [aria-modal=true]')].filter(visible).pop();
   if (!dialog) {
+    // A real modal covers a good part of the screen and holds visible form fields; sticky menus,
+    // search bars and cookie banners do not count (Computrabajo keeps several fixed layers).
+    const fields = el => [...el.querySelectorAll('textarea, input, select')].some(f => visible(f) && !['hidden', 'search'].includes(f.type));
     const layers = [...document.body.querySelectorAll('div, section, aside, form')].filter(el => {
       const s = getComputedStyle(el); if (s.position !== 'fixed') return false;
       const r = el.getBoundingClientRect();
-      return visible(el) && r.width >= 300 && r.height >= 200 && el.querySelector('textarea, input:not([type=search]), select');
+      return visible(el) && r.width >= innerWidth * 0.35 && r.height >= innerHeight * 0.35 && fields(el) &&
+             !/cookies/i.test((el.innerText || '').slice(0, 300));
     });
     const z = el => parseInt(getComputedStyle(el).zIndex) || 0;
     dialog = layers.sort((a, b) => z(a) - z(b)).pop();
   }
-  const root = dialog || document;
-  const buttons = [...root.querySelectorAll('button, a, input[type=submit], [role=button]')].filter(visible)
-    .filter(b => !b.closest('header, footer, nav'));
   const label = b => (b.innerText || b.value || b.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim();
+  const candidates = root => [...root.querySelectorAll('button, a, input[type=submit], [role=button]')].filter(visible)
+    .filter(b => !b.closest('header, footer, nav'));
+  let buttons = candidates(dialog || document);
   let button = null;
-  patterns.forEach((pattern, i) => {
-    if (button || (i > 0 && !dialog && !genericOutsideDialog)) return;
-    const re = new RegExp(pattern, 'i'); button = buttons.find(b => re.test(label(b)));
+  const pick = (list, inDialog) => patterns.forEach((pattern, i) => {
+    if (button || (i > 0 && !inDialog && !genericOutsideDialog)) return;
+    const re = new RegExp(pattern, 'i'); button = list.find(b => re.test(label(b)));
   });
+  pick(buttons, !!dialog);
+  if (!button && dialog && searchOutside) {
+    // On the job page a fixed layer must not hide the page's own «Postularme».
+    buttons = candidates(document).filter(b => !dialog.contains(b));
+    pick(buttons, false);
+    if (button) dialog = null;
+  }
   if (!button && buttons.some(b => done.test(label(b)))) return { done: true };
   if (!button) return { found: false, dialog: !!dialog, dialogText: dialog ? (dialog.innerText || '').slice(0, 5000) : '' };
   button.setAttribute('data-jobflow-action', '1');
@@ -675,11 +693,11 @@ NO_BUTTON = {
 }
 
 
-def _find_action(page, patterns, generic_outside_dialog, wait_s: float = 0):
+def _find_action(page, patterns, generic_outside_dialog, wait_s: float = 0, search_outside: bool = False):
     """Busca el siguiente botón; en la página del aviso espera a que el portal lo cargue."""
     deadline = time.time() + wait_s
     while True:
-        action = page.evaluate(ACTION_JS, [patterns, DONE_BUTTON, generic_outside_dialog])
+        action = page.evaluate(ACTION_JS, [patterns, DONE_BUTTON, generic_outside_dialog, search_outside])
         if action.get("found") or action.get("done") or time.time() >= deadline:
             return action
         page.mouse.wheel(0, 500)
@@ -729,7 +747,7 @@ def apply_on_page(page, portal: str, url: str, planner, max_steps: int = 8, trac
         patterns = [APPLY_TEXT, NEXT_TEXT] if trace["clicks"] else [APPLY_TEXT]
         navigated = bool(trace["clicks"]) and page.url != clicked_on
         waiting = 15 if not trace["clicks"] and not trace.get("evidence") else 3
-        action = _find_action(page, patterns, navigated, waiting)
+        action = _find_action(page, patterns, navigated, waiting, search_outside=not trace["clicks"])
         # Only the application form counts for tests/CAPTCHA, never the job description.
         flow_text = action.get("dialogText") or (_visible_text(page) if page.url != job_page else "")
         blocker = _blocker(page, flow_text)
@@ -771,9 +789,10 @@ def apply_on_page(page, portal: str, url: str, planner, max_steps: int = 8, trac
                 _perform(page, step)
                 trace["filled"].append({"label": step["label"], "value": step["value"] if step["action"] != "file" else "CV adjunto",
                                         "source": step.get("source", "")})
-        button = page.locator("[data-jobflow-action='1']").first
         for _ in range(12):
-            if button.is_enabled() and button.get_attribute("aria-disabled") != "true":
+            # Portals re-render the form while typing: locate the button again instead of reusing it.
+            again = page.evaluate(ACTION_JS, [patterns, DONE_BUTTON, navigated, not trace["clicks"]])
+            if again.get("found") and again.get("label") == action["label"] and not again.get("disabled"):
                 break
             page.wait_for_timeout(500)
         else:
@@ -782,7 +801,12 @@ def apply_on_page(page, portal: str, url: str, planner, max_steps: int = 8, trac
                 return applied(message="Postulación registrada. " + message)
             return result("bloqueada", "formulario_incompleto", message=message)
         clicked_on = page.url
-        button.click()
+        button = page.locator("[data-jobflow-action='1']").first
+        try:
+            button.click(timeout=8000)
+        except Exception:
+            # A sticky cookie banner may cover it; the element's own click avoids accepting cookies.
+            button.evaluate("el => el.click()")
         trace["clicks"].append(action["label"])
         _settle(page)
     if _confirmation(page) or trace.get("evidence"):
@@ -828,8 +852,38 @@ def recover_interrupted():
         db.close()
 
 
+_worker_file = None
+
+
+def acquire_worker_lock() -> bool:
+    """Solo un proceso de JobFlow puede ejecutar la cola, aunque haya varios abiertos."""
+    global _worker_file
+    if _worker_file:
+        return True
+    path = Path(settings.data_dir) / "worker.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = open(path, "a+")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        return False
+    _worker_file = handle
+    return True
+
+
 def worker_loop():
     delay = float(os.getenv("JOBFLOW_APPLY_DELAY_SECONDS", "45"))
+    while not acquire_worker_lock():
+        # Another JobFlow window owns the queue; take over only if it closes.
+        if STOP.wait(15):
+            return
     while not STOP.is_set():
         db = SessionLocal()
         try:
@@ -1206,3 +1260,209 @@ def run_screenshot(rid: int, db: Session = Depends(get_db)):
     if not path or not path.exists():
         raise HTTPException(404, "Captura no disponible")
     return FileResponse(str(path), media_type="image/png")
+
+
+# --------------------------------------------------------------------------- #
+#  Postulación masiva: cola, avance y preguntas agrupadas
+# --------------------------------------------------------------------------- #
+IMPORT_KEYS = ("titulo", "empresa", "plataforma", "url", "descripcion", "ubicacion", "modalidad", "vigente",
+               "anos_obligatorios", "herramientas", "formacion", "salario_max", "fecha_publicacion")
+COUNTED_RUNS = ("en_cola", "ejecutando", "postulada", "intento_no_confirmado")
+
+
+class MassJob(BaseModel):
+    url: str = Field(min_length=8, max_length=2000)
+    titulo: str = Field(default="", max_length=250)
+    empresa: str = Field(default="", max_length=250)
+    ubicacion: str = Field(default="", max_length=250)
+    modalidad: str = Field(default="", max_length=100)
+    fecha_publicacion: str | None = None
+    plataforma: str = Field(default="", max_length=40)
+
+
+class MassApplyRequest(BaseModel):
+    jobs: list[MassJob] = Field(min_length=1, max_length=50)
+    min_score: int = Field(default=0, ge=0, le=100)
+
+
+def _read_job(job: MassJob) -> tuple[dict, str]:
+    """El aviso completo cuando se puede leer; si no, los datos de la tarjeta de búsqueda."""
+    from .job_extract import ExtractionError, extract_job
+    card = job.model_dump()
+    try:
+        full = extract_job(job.url)
+    except (ExtractionError, ValueError) as exc:
+        return card, f"No se leyó el aviso completo: {exc}"
+    return {**card, **{k: v for k, v in full.items() if v not in (None, "", [])}}, ""
+
+
+@router.post("/{pid}/mass-apply", status_code=202)
+def mass_apply(pid: int, req: MassApplyRequest, db: Session = Depends(get_db)):
+    from concurrent.futures import ThreadPoolExecutor
+    from .career import Preferences, require_ready
+    from .seed import profile_from_row
+    from .workflow import evaluate, register, safe_url
+    row = require_ready(db, pid)
+    profile = profile_from_row(row)
+    prefs = db.get(Preferences, pid)
+    level = ((prefs.data or {}).get("goals") or {}).get("seniority") if prefs else None
+    unique, results = {}, []
+    for job in req.jobs:
+        try:
+            unique.setdefault(safe_url(job.url), job)
+        except ValueError:
+            results.append({"url": job.url, "titulo": job.titulo, "estado": "omitida", "motivo": "Enlace no válido."})
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        read = list(pool.map(_read_job, unique.values()))
+    queued = 0
+    for job, note in read:
+        item = {"url": job.get("url"), "titulo": job.get("titulo") or "", "empresa": job.get("empresa") or "Empresa no indicada"}
+        if not item["titulo"]:
+            results.append({**item, "estado": "omitida", "motivo": "No se pudo identificar el puesto."})
+            continue
+        data = {k: job.get(k) for k in IMPORT_KEYS if job.get(k) not in (None, "", [])}
+        data.update(empresa=item["empresa"], plataforma=data.get("plataforma") or portal_for_url(item["url"]),
+                    descripcion=str(data.get("descripcion", ""))[:40000])
+        analysis = evaluate(profile, data, level)
+        try:
+            app, _ = register(db, row.usuario_id, pid, data, analysis)
+        except ValueError as exc:
+            results.append({**item, "estado": "omitida", "motivo": str(exc)})
+            continue
+        item.update(application_id=app.id, compatibilidad=analysis["compatibilidad"], portal=portal_for_url(item["url"]))
+        if analysis["requisito_excluyente"]:
+            results.append({**item, "estado": "descartada", "motivo": "; ".join(analysis["motivos_exclusion"])})
+            continue
+        if analysis["compatibilidad"] < req.min_score:
+            results.append({**item, "estado": "descartada",
+                            "motivo": f"Compatibilidad {analysis['compatibilidad']}/100, menor al mínimo de {req.min_score}."})
+            continue
+        try:
+            run = queue_application(db, app.id)
+        except HTTPException as exc:
+            db.rollback()
+            results.append({**item, "estado": "no_encolada", "motivo": exc.detail if isinstance(exc.detail, str) else "No se pudo poner en cola."})
+            continue
+        queued += 1
+        results.append({**item, "estado": "en_cola", "run_id": run.id, "nota": note})
+    if queued:
+        ensure_worker()
+    return {"queued": queued, "total": len(req.jobs), "results": results}
+
+
+@router.get("/{pid}/queue")
+def queue_status(pid: int, db: Session = Depends(get_db)):
+    from sqlalchemy import or_
+    from .career import profile_row
+    from .models import Postulacion, Vacante
+    profile_row(db, pid)
+    since = datetime.utcnow() - timedelta(hours=24)
+    runs = (db.query(AutoApplyRun).filter(AutoApplyRun.profile_id == pid,
+                                          or_(AutoApplyRun.created >= since, AutoApplyRun.status.in_(ACTIVE_RUNS)))
+            .order_by(AutoApplyRun.id).all())
+    delay = float(os.getenv("JOBFLOW_APPLY_DELAY_SECONDS", "45"))
+    items, position, counts = [], 0, {}
+    for run in runs:
+        app = db.get(Postulacion, run.application_id)
+        vacancy = db.get(Vacante, app.vacante_id) if app and app.vacante_id else None
+        item = {**run_data(run), "empresa": vacancy.empresa if vacancy else "", "titulo": vacancy.titulo if vacancy else "",
+                "url": vacancy.url if vacancy else "", "estado_candidatura": app.estado if app else ""}
+        if run.status == "en_cola":
+            position += 1
+            item.update(position=position, eta_minutes=max(1, round(position * (delay + 60) / 60)))
+        needs_you = run.status == "bloqueada" or (run.status == "postulada" and item["questions"])
+        key = "necesita_respuesta" if needs_you else run.status
+        counts[key] = counts.get(key, 0) + 1
+        items.append(item)
+    used = sum(1 for r in runs if r.created >= since and r.status in COUNTED_RUNS)
+    return {"items": list(reversed(items)), "counts": counts, "active": any(r.status in ACTIVE_RUNS for r in runs),
+            "remaining_today": max(0, DAILY_LIMIT - used), "daily_limit": DAILY_LIMIT, "delay_seconds": delay}
+
+
+@router.post("/{pid}/queue/stop")
+def queue_stop(pid: int, db: Session = Depends(get_db)):
+    from .career import profile_row
+    profile_row(db, pid)
+    cancelled = 0
+    for run in db.query(AutoApplyRun).filter_by(profile_id=pid, status="en_cola"):
+        run.status, run.updated = "cancelada", datetime.utcnow()
+        run.detail = {**(run.detail or {}), "message": "Cancelada por ti antes de empezar."}
+        db.add(AuditEvent(application_id=run.application_id, action="auto_postulacion_cancelada", payload={"run_id": run.id}))
+        cancelled += 1
+    db.commit()
+    return {"cancelled": cancelled, "note": "La postulación que ya estaba en curso termina normalmente."}
+
+
+def pending_forms(db, pid):
+    """Último formulario sin aprobar de cada candidatura que el portal dejó con preguntas."""
+    from .models import Postulacion
+    apps = {a.id: a for a in db.query(Postulacion).filter_by(profile_id=pid)}
+    latest = {}
+    if apps:
+        for form in (db.query(FormularioResuelto).filter(FormularioResuelto.postulacion_id.in_(list(apps)),
+                                                          FormularioResuelto.plataforma.in_(list(PORTALS)))
+                     .order_by(FormularioResuelto.id)):
+            latest[form.postulacion_id] = form
+    return [(apps[aid], form) for aid, form in latest.items()
+            if not form.aprobado_por_usuario and apps[aid].estado in ("postulada", "bloqueada")]
+
+
+@router.get("/{pid}/questions")
+def grouped_questions(pid: int, db: Session = Depends(get_db)):
+    from .career import profile_row
+    from .models import Vacante
+    profile_row(db, pid)
+    bank, groups = answer_bank(db, pid), {}
+    for app, form in pending_forms(db, pid):
+        vacancy = db.get(Vacante, app.vacante_id)
+        for answer in form.respuestas_generadas or []:
+            if str(answer.get("answer", "")).strip() and not answer.get("necesita_input"):
+                continue  # proposed by JobFlow from your CV
+            key = norm(answer.get("label", ""))
+            group = groups.setdefault(key, {"key": key, "label": answer.get("label", ""), "options": answer.get("opciones") or [],
+                                            "reason": answer.get("nota", ""), "sensitive": bool(answer.get("bloqueada")),
+                                            "suggested": bank.get(key, str(answer.get("answer", ""))), "applications": []})
+            group["applications"].append({"id": app.id, "empresa": vacancy.empresa if vacancy else "",
+                                          "titulo": vacancy.titulo if vacancy else "", "estado": app.estado})
+    return {"questions": sorted(groups.values(), key=lambda g: (-len(g["applications"]), g["label"]))}
+
+
+class GroupedAnswers(BaseModel):
+    answers: dict[str, str] = Field(default_factory=dict)
+    send: bool = True
+
+
+@router.post("/{pid}/questions")
+def answer_grouped_questions(pid: int, req: GroupedAnswers, db: Session = Depends(get_db)):
+    """Una respuesta por pregunta se aplica a todas las candidaturas que la tienen pendiente."""
+    from .autofill import approve
+    from .career import profile_row
+    profile_row(db, pid)
+    given = {norm(k): v.strip() for k, v in req.answers.items() if v and v.strip()}
+    approved = queued = partial = 0
+    for app, form in pending_forms(db, pid):
+        answers = form.respuestas_generadas or []
+        edits = [{"field_id": a["field_id"], "answer": given[norm(a.get("label", ""))]} for a in answers if norm(a.get("label", "")) in given]
+        if not edits:
+            continue
+        ready = all(norm(a.get("label", "")) in given or (str(a.get("answer", "")).strip() and not a.get("necesita_input"))
+                    for a in answers) and not any(a.get("bloqueada") for a in answers)
+        if not ready:
+            # Keep what you answered; the application waits for the rest.
+            form.respuestas_generadas = [{**a, "answer": given[norm(a.get("label", ""))], "necesita_input": False,
+                                          "fuente": "Respondida por ti en Preguntas por responder"}
+                                         if norm(a.get("label", "")) in given else a for a in answers]
+            db.commit()
+            partial += 1
+            continue
+        approve(db, form.id, edits)
+        approved += 1
+        if req.send:
+            try:
+                queue_application(db, app.id, complete_questions=app.estado == "postulada")
+                queued += 1
+            except HTTPException:
+                db.rollback()
+    if queued:
+        ensure_worker()
+    return {"approved": approved, "queued": queued, "partial": partial}
