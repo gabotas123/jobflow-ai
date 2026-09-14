@@ -65,6 +65,14 @@ PORTALS = {
 }
 UNSUPPORTED = {
     "indeed": "Indeed bloquea el acceso automatizado: abre el aviso y postula personalmente.",
+    "hiringroom": "Cada empresa arma su propio formulario en HiringRoom: JobFlow lee el aviso y prepara tus respuestas; tú postulas.",
+    "pandape": "Cada empresa arma su propio formulario en Pandapé: JobFlow lee el aviso y prepara tus respuestas; tú postulas.",
+}
+# Portals shown as «solo preparación» (no login, no automatic applications). `url` only when a public job board exists.
+PREPARED_PORTALS = {
+    "indeed": {"nombre": "Indeed", "url": "https://pe.indeed.com/"},
+    "hiringroom": {"nombre": "HiringRoom", "url": ""},
+    "pandape": {"nombre": "Pandapé", "url": ""},
 }
 BLOCKED_STATES = ("incompatible", "pendiente_revision_duplicado", "vencida", "rechazada")
 ACTIVE_RUNS = ("en_cola", "ejecutando")
@@ -1061,7 +1069,8 @@ def portals_status(pid: int, db: Session = Depends(get_db)):
                          "login": {"status": login["status"], "message": login["message"]} if login else None,
                          "riesgo": cfg.get("riesgo", ""), "limite_diario": PORTAL_LIMITS.get(key, DAILY_LIMIT)})
     queue = db.query(AutoApplyRun).filter(AutoApplyRun.profile_id == pid, AutoApplyRun.status.in_(ACTIVE_RUNS)).count()
-    return {"browser_available": ok, "browser_note": note, "accounts": accounts, "unsupported": UNSUPPORTED,
+    prepared = [{"portal": key, **cfg, "nota": UNSUPPORTED[key]} for key, cfg in PREPARED_PORTALS.items()]
+    return {"browser_available": ok, "browser_note": note, "accounts": accounts, "unsupported": UNSUPPORTED, "prepared": prepared,
             "queue": queue, "daily_limit": DAILY_LIMIT}
 
 

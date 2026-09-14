@@ -19,6 +19,15 @@ Todos los cambios del proyecto, con fecha y commit. El historial vivo está en:
 - Espera hasta 15 s a que el portal cargue el botón de postular.
 - **LinkedIn «Solicitud sencilla»** con aceptación explícita del riesgo, máximo 8 por día.
 
+## 09-13 · Portales de empleo dentro de «Mi perfil»
+- La sección **Portales de empleo** pasa de «Conexiones» a «Mi perfil» (paso 4 y
+  enlace `#portals`). Bumeran y Computrabajo se conectan igual que antes.
+- **LinkedIn, Indeed, HiringRoom y Pandapé** aparecen como «Solo preparación»: JobFlow no
+  inicia sesión ni postula en ellos (condiciones de uso o formularios propios de cada
+  empresa). LinkedIn muestra tu enlace de perfil y abre LinkedIn Empleos; Indeed abre el
+  portal; HiringRoom y Pandapé llevan a pegar el aviso en Oportunidades.
+- `GET /api/portals/{pid}` devuelve `prepared` con esos portales.
+
 ## 09-13 · Privacidad de las cuentas: sin perfil precargado ni reclamos públicos
 - Una base nueva **ya no crea el perfil de ejemplo** con datos de una persona real:
   quedaba sin dueño y cualquier cuenta nueva podía reclamarlo. Solo se crea con
