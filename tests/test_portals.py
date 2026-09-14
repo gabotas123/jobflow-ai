@@ -555,3 +555,38 @@ def test_linkedin_external_apply_is_reported_clearly(portal_page):
     out = portals.apply_on_page(page, 'linkedin', 'https://www.linkedin.com/jobs/view/1234567/',
                                 lambda fields: portals.plan_fields(fields, cv_profile(), 'Analista', {}))
     assert out['reason'] == 'sin_boton' and 'Solicitud sencilla' in out['message']
+
+
+# --------------------------------------------------------------------------- #
+#  Casos reales de Bumeran (capturas del 13/09)
+# --------------------------------------------------------------------------- #
+def test_generic_experience_time_and_compound_questions_from_real_forms():
+    p = cv_profile()
+    total = answer_question('indique el tiempo de experiencia relacionada a la posición', 'textarea', [], p)
+    assert total['value'].startswith('1 año y 4 meses'), total  # 13 + 3 months across both jobs
+    both = answer_question('mencione sus pretensiones salariales y disponibilidad', 'textarea', [], p)
+    assert both['value'] == 'Pretensión salarial: S/2,500–2,800. Disponibilidad: Inmediata.'
+    plan = portals.plan_fields([{'key': '1', 'label': 'mencione sus pretensiones salariales y disponibilidad', 'type': 'textarea',
+                                 'required': True, 'filled': False}], p, 'Analista', {})
+    assert plan[0]['action'] == 'fill' and 'Disponibilidad: Inmediata' in plan[0]['value']
+
+
+def test_job_description_mentioning_tests_does_not_block(portal_page):
+    body = ('<main><h1>Analista</h1><p>Bajo ningún motivo envíes dinero. Ningún reclutador te pedirá pagar por rendir un test, '
+            'prueba técnica, evaluación de conocimientos u otro motivo.</p><section class="apply"><button id="go">Postularme</button></section>'
+            '<p id="ok" style="display:none">¡Tu postulación fue enviada!</p></main>'
+            '<script>go.onclick = () => { ok.style.display = "block"; go.remove(); };</script>')
+    page = portal_page('<!doctype html><html><head><meta charset="utf-8"></head><body>' + body + '</body></html>')
+    out = portals.apply_on_page(page, 'bumeran', 'https://www.bumeran.com.pe/empleos/analista-1.html',
+                                lambda fields: portals.plan_fields(fields, cv_profile(), 'Analista', {}))
+    assert out['status'] == 'postulada', out
+
+
+def test_test_inside_application_form_still_blocks(portal_page):
+    body = ('<main><h1>Analista</h1><button id="go">Postularme</button></main>'
+            '<div role="dialog" id="dlg" style="display:none"><p>Completa la prueba psicométrica para continuar.</p><button>Continuar</button></div>'
+            '<script>go.onclick = () => { dlg.style.display = "block"; };</script>')
+    page = portal_page('<!doctype html><html><head><meta charset="utf-8"></head><body>' + body + '</body></html>')
+    out = portals.apply_on_page(page, 'bumeran', 'https://www.bumeran.com.pe/empleos/analista-1.html',
+                                lambda fields: portals.plan_fields(fields, cv_profile(), 'Analista', {}))
+    assert out['status'] == 'bloqueada' and out['reason'] == 'evaluacion', out

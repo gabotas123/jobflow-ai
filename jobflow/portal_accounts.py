@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .db import SessionLocal, get_db
-from .cv_answers import answer_question
+from .cv_answers import answer_question, compound_answer, degree_answer
 from .models import Base, FormularioResuelto
 from .workflow import ApplicationDetail, AuditEvent, norm
 
@@ -91,7 +91,7 @@ def apply_url(portal: str, url: str) -> str:
 
 APPLY_TEXT = (r"^(postularme|postular(me|se)?( ahora| a este empleo| a esta oferta| al empleo)?|aplicar( ahora)?|"
               r"enviar (mi )?postulaci[oó]n|confirmar postulaci[oó]n|finalizar postulaci[oó]n|enviar (mi )?cv|"
-              r"solicitud sencilla|easy apply|enviar solicitud|submit application|preguntas sin responder.*)$")
+              r"solicitud sencilla|easy apply|enviar solicitud|submit application|(tienes )?preguntas sin responder.*)$")
 # Generic buttons only count once the application flow has started (never on the job page).
 NEXT_TEXT = (r"^(enviar|confirmar|finalizar|continuar|siguiente|guardar y continuar|responder|enviar respuestas|"
              r"guardar respuestas|revisar|revisar (tu )?solicitud|next|review|continue|continuar al siguiente paso)$")
@@ -104,7 +104,7 @@ CONFIRM_TEXT = re.compile(
     r"tu (cv|curr[ií]culum) (fue|ha sido) enviado|(te )?postulaste (correctamente|exitosamente)|"
     r"postulad[oa] el \d{1,2}/\d{1,2}/\d{2,4}|se envi[oó] tu solicitud|solicitud enviada|"
     r"your application was sent|application (was )?submitted)", re.I)
-QUESTIONS_BUTTON = re.compile(r"^preguntas sin responder", re.I)
+QUESTIONS_BUTTON = re.compile(r"^(tienes )?preguntas sin responder", re.I)
 CAPTCHA_TEXT = re.compile(r"(no soy un robot|verifica que eres (un )?humano|captcha|confirma que eres humano)", re.I)
 TEST_TEXT = re.compile(r"(prueba|test|evaluaci[oó]n) (psicom[eé]trica|t[eé]cnica|de conocimientos|de personalidad)|video ?entrevista|graba(r)? (un )?video", re.I)
 
@@ -436,6 +436,11 @@ def plan_fields(fields, profile, vacancy_title, approved: dict, cv_path: str | N
         value = approved.get(norm(label), "")
         source = "Respuesta aprobada por ti"
         reason = "No hay un dato confirmado para esta pregunta."
+        if not value and kind in ("text", "textarea"):
+            # Salary and availability in one question, or only the degree when asked for «carrera y grado».
+            combined = compound_answer(label, profile) or degree_answer(label, profile)
+            if combined:
+                value, source = combined["value"], combined["source"]
         if not value and m["canonical"] in DIRECT_FACTS and a["answer"] and not a["necesita_input"]:
             value, source = a["answer"], a.get("fuente") or "Perfil confirmado"
         if not value:
@@ -598,13 +603,14 @@ ACTION_JS = r"""
     const re = new RegExp(pattern, 'i'); button = buttons.find(b => re.test(label(b)));
   });
   if (!button && buttons.some(b => done.test(label(b)))) return { done: true };
-  if (!button) return { found: false, dialog: !!dialog };
+  if (!button) return { found: false, dialog: !!dialog, dialogText: dialog ? (dialog.innerText || '').slice(0, 5000) : '' };
   button.setAttribute('data-jobflow-action', '1');
   let scope = button.closest('form, [role=dialog], dialog, [aria-modal=true]') || (dialog && dialog.contains(button) ? dialog : null);
   if (!scope) { let n = button; for (let i = 0; i < 6 && n; i++) { n = n.parentElement; if (n && n.querySelector('input, textarea, select')) { scope = n; break; } } }
   if (scope) scope.setAttribute('data-jobflow-scope', '1');
   const disabled = !!(button.disabled || button.getAttribute('aria-disabled') === 'true');
-  return { found: true, label: label(button), scoped: !!scope, dialog: !!dialog, disabled };
+  return { found: true, label: label(button), scoped: !!scope, dialog: !!dialog, disabled,
+           dialogText: dialog ? (dialog.innerText || '').slice(0, 5000) : '' };
 }
 """
 
@@ -624,15 +630,23 @@ def _settle(page, ms=2500):
     page.wait_for_timeout(ms)
 
 
-def _blocker(page) -> str:
-    if page.locator("iframe[src*='recaptcha'], iframe[src*='hcaptcha'], iframe[src*='challenges.cloudflare'], .g-recaptcha, .h-captcha").count():
-        return "captcha"
-    body = _visible_text(page)
-    if BLOCK_TEXT.search(body[:600]):
+CAPTCHA_FRAMES_JS = """() => [...document.querySelectorAll("iframe[src*='recaptcha'], iframe[src*='hcaptcha'], iframe[src*='challenges.cloudflare']")]
+  .some(f => { const r = f.getBoundingClientRect(); return r.width >= 280 && r.height >= 70; })"""
+
+
+def _blocker(page, flow_text: str = "") -> str:
+    """Bloqueos reales. «flow_text» es solo el texto del formulario de postulación: la descripción
+    del aviso suele decir «ningún reclutador te pedirá una prueba» y no debe detener nada."""
+    if BLOCK_TEXT.search(_visible_text(page)[:600]):
         return "bloqueo_portal"
-    if CAPTCHA_TEXT.search(body):
-        return "captcha"
-    if TEST_TEXT.search(body):
+    try:
+        if page.evaluate(CAPTCHA_FRAMES_JS):  # visible challenge, not the invisible reCAPTCHA badge
+            return "captcha"
+    except Exception:
+        pass
+    if CAPTCHA_TEXT.search(flow_text) or CAPTCHA_TEXT.search(_visible_text(page)[:600]):
+        return "captcha"  # a challenge page is short; the phrase deep in a description is not one
+    if TEST_TEXT.search(flow_text):
         return "evaluacion"
     return ""
 
@@ -702,16 +716,13 @@ def apply_on_page(page, portal: str, url: str, planner, max_steps: int = 8, trac
 
     page.goto(url, wait_until="domcontentloaded", timeout=45000)
     _settle(page, 3000)
-    clicked_on = page.url
+    clicked_on = job_page = page.url
     for _ in range(max_steps):
         if on_login(page.url, portal):
             return result("bloqueada", "sesion_cerrada", message="El portal pidió iniciar sesión nuevamente.")
-        blocker = _blocker(page)
-        if blocker:
-            return result("bloqueada", blocker, message={
-                "captcha": "El portal muestra un CAPTCHA o una verificación: requiere tu intervención.",
-                "bloqueo_portal": "El portal bloqueó el acceso desde el navegador. Postula desde el aviso original o inténtalo más tarde.",
-            }.get(blocker, "La postulación incluye una prueba o video: complétala personalmente."))
+        if BLOCK_TEXT.search(_visible_text(page)[:600]):
+            return result("bloqueada", "bloqueo_portal",
+                          message="El portal bloqueó el acceso desde el navegador. Postula desde el aviso original o inténtalo más tarde.")
         evidence = _confirmation(page)
         if evidence:
             trace["evidence"] = evidence
@@ -719,6 +730,14 @@ def apply_on_page(page, portal: str, url: str, planner, max_steps: int = 8, trac
         navigated = bool(trace["clicks"]) and page.url != clicked_on
         waiting = 15 if not trace["clicks"] and not trace.get("evidence") else 3
         action = _find_action(page, patterns, navigated, waiting)
+        # Only the application form counts for tests/CAPTCHA, never the job description.
+        flow_text = action.get("dialogText") or (_visible_text(page) if page.url != job_page else "")
+        blocker = _blocker(page, flow_text)
+        if blocker:
+            return result("bloqueada", blocker, message={
+                "captcha": "El portal muestra un CAPTCHA o una verificación: requiere tu intervención.",
+                "bloqueo_portal": "El portal bloqueó el acceso desde el navegador. Postula desde el aviso original o inténtalo más tarde.",
+            }.get(blocker, "La postulación incluye una prueba o video: complétala personalmente."))
         answering = action.get("found") and (action.get("dialog") or QUESTIONS_BUTTON.match(action.get("label", "")))
         if trace.get("evidence") and not answering:
             return applied()
@@ -906,8 +925,9 @@ def finish(db, run, outcome: dict):
     app = db.get(Postulacion, run.application_id)
     trace = outcome.get("trace") or {}
     if outcome.get("status") == "error" and trace.get("clicks"):
-        outcome = {**outcome, "status": "intento_no_confirmado",
-                   "message": "Ocurrió un fallo después de pulsar en el portal. Revisa si la postulación figura antes de reintentar."}
+        outcome = {**outcome, "status": "intento_no_confirmado", "error": outcome.get("message", ""),
+                   "message": "Ocurrió un fallo después de pulsar en el portal. Revisa si la postulación figura antes de reintentar. "
+                              "Detalle técnico: " + str(outcome.get("message", ""))[:200]}
     acc = account(db, run.profile_id, run.portal)
     if acc and outcome.get("status") == "postulada":
         acc.checked_at = datetime.utcnow()

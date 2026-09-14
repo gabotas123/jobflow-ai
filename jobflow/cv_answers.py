@@ -29,7 +29,8 @@ cargo cargos area areas rubro sector empresa empresas funciones funcion procesos
 como para sobre desde hasta este esta estos estas otro otra otros otras donde cual cuales que tus sus una uno
 unos unas del las los con por sin entre usar uso utilizando utilizado herramienta herramientas analisis
 """.split())
-GENERIC_YEARS = ("area", "puesto", "similar", "cargo", "rubro", "funciones", "total", "laboral", "profesional")
+GENERIC_YEARS = ("area", "puesto", "similar", "cargo", "rubro", "funciones", "total", "laboral", "profesional",
+                 "relaci", "posici", "vacant", "rol", "afin", "afines", "requer", "indiqu", "mencio", "detall")
 YEARS_Q = re.compile(r"\b(cuant[oa]s? (anos|meses|tiempo)|anos de experiencia|tiempo de experiencia|anos trabajando)\b")
 YESNO_Q = re.compile(r"^(tienes|tiene|cuentas con|cuenta con|posees|posee|has (trabajado|realizado|tenido|gestionado|manejado|usado|utilizado)|"
                      r"manejas|maneja|conoces|dominas|sabes|tienes conocimiento|cuentas con experiencia|has participado)\b")
@@ -90,6 +91,31 @@ def experience_months(exp: dict, today: date | None = None) -> int | None:
     return months if months > 0 else None
 
 
+def covered_months(exps: list[dict], today: date | None = None) -> int:
+    """Meses calendario distintos cubiertos por las experiencias (sin duplicar superposiciones)."""
+    months = set()
+    for exp in exps:
+        start, end = parse_month(exp.get("inicio", ""), today), parse_month(exp.get("fin", ""), today)
+        if start and end:
+            months.update(range(start[0] * 12 + start[1], end[0] * 12 + end[1] + 1))
+    return len(months)
+
+
+DEGREE = re.compile(r"\b(bachiller|licenciad|titulad|egresad|maestr|magister|mba|doctor|ingenier[oa]|t[eé]cnico|universidad|instituto superior)", re.I)
+EDUCATION_Q = re.compile(r"\b(carrera|grado|titulo|profesion|estudios|formacion|universidad)\b")
+
+
+def degree_answer(label: str, profile) -> dict | None:
+    """«Carrera y grado académico»: solo los grados, no cursos ni diplomados."""
+    q = norm(label).lstrip("¿¡ ")
+    if not EDUCATION_Q.search(q) or YESNO_Q.search(q) or "formacion" not in profile.hechos_confirmados:
+        return None
+    degrees = [e.strip(" |.") for e in profile.educacion if DEGREE.search(e) and not re.search(r"\b(curso|diplomado|certificad|taller)\b", e, re.I)]
+    if not degrees:
+        return None
+    return {"value": "; ".join(degrees[:2]) + ".", "source": "Formación confirmada en tu CV"}
+
+
 def years_label(months: int) -> str:
     years, rest = divmod(months, 12)
     parts = ([f"{years} año" + ("s" if years != 1 else "")] if years else []) + \
@@ -146,8 +172,29 @@ def _role(exp: dict) -> str:
     return re.sub(r"\s+Lima,?\s*Per[uú]\.?$", "", (exp.get("cargo") or "").strip(), flags=re.I)
 
 
+def compound_answer(label: str, profile) -> dict | None:
+    """«Pretensiones salariales y disponibilidad»: une los dos datos confirmados que pide."""
+    q = norm(label)
+    parts = []
+    if re.search(r"salari|sueldo|remunera|pretension", q):
+        if not profile.rango_salarial or "salario_pretendido" not in profile.hechos_confirmados:
+            return None
+        parts.append(("Pretensión salarial", profile.rango_salarial))
+    if "disponib" in q:
+        if not profile.disponibilidad or "disponibilidad" not in profile.hechos_confirmados:
+            return None
+        parts.append(("Disponibilidad", profile.disponibilidad))
+    if len(parts) < 2:
+        return None
+    return {"value": ". ".join(f"{k}: {v}" for k, v in parts) + ".", "source": "Datos confirmados en tu perfil"}
+
+
 def answer_question(label: str, field_type: str, options: list[str], profile, today: date | None = None):
     """Devuelve {'value', 'source'} con evidencia del CV, o {'reason'} si no puede responder."""
+    if field_type in ("text", "textarea"):
+        combined = compound_answer(label, profile) or degree_answer(label, profile)
+        if combined:
+            return combined
     q = norm(label).lstrip("¿¡ ").strip()
     label = label.strip().lstrip("¿¡ ")
     strict = field_type in ("select", "radio", "number")  # no room to explain a partial match
@@ -164,7 +211,8 @@ def answer_question(label: str, field_type: str, options: list[str], profile, to
         return {"reason": f"Tu CV no indica un nivel para «{topic}»."}
 
     if YEARS_Q.search(q):
-        stems = [s for s in topic_stems(label) if s not in GENERIC_YEARS]
+        generic = {_stem(w) for w in GENERIC_YEARS}
+        stems = [s for s in topic_stems(label) if s not in generic]
         exps = profile.experiencia if not stems else []
         if stems:
             found = _evidence(profile, stems)
@@ -177,7 +225,7 @@ def answer_question(label: str, field_type: str, options: list[str], profile, to
         durations = [experience_months(e, today) for e in exps]
         if any(d is None for d in durations):
             return {"reason": "Completa el mes de inicio y fin de tus experiencias en Mi perfil para calcular los años."}
-        months = sum(durations)
+        months = covered_months(exps, today)  # overlapping jobs are not counted twice
         companies = ", ".join(dict.fromkeys(_company(e) for e in exps))
         source = f"Calculado con las fechas de tu CV confirmado ({companies})"
         if field_type == "number":
