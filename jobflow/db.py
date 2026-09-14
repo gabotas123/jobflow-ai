@@ -40,4 +40,6 @@ def init_db() -> None:
     from . import workflow  # additive audit and application-detail tables
     from . import career, google_integration  # additive v0.5 tables
     from . import portal_accounts  # additive v0.6 tables
+    from . import accounts  # app accounts and sessions
     models.Base.metadata.create_all(bind=engine)
+    accounts.migrate()

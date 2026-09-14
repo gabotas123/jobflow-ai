@@ -10,12 +10,13 @@ from jobflow.answer_generator import build_answers
 from jobflow.knowledge import build_gabriel
 from jobflow.workflow import evaluate
 import pytest
+from conftest import sign_in
 
 
 @pytest.fixture
 def client():
     with TestClient(app) as c:
-        yield c
+        yield sign_in(c)
 
 
 def test_no_language_or_job_title_invention():

@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import Column, Integer, String, JSON, DateTime, ForeignKey
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from .models import Base, CandidateProfileRow, PuestoObjetivo, Postulacion, Vacante
 from .db import get_db
@@ -47,15 +48,20 @@ class Recruiter(Base):
     data = Column(JSON)
 
 def profile_row(db, pid):
+    from .accounts import can_access
     row=db.get(CandidateProfileRow,pid)
-    if not row:raise HTTPException(404,'Perfil no encontrado')
+    if not can_access(row):raise HTTPException(404,'Perfil no encontrado')
     return row
 
 def prefs(db,pid):
     profile_row(db,pid)
     row=db.get(Preferences,pid)
     if not row:
-        row=Preferences(profile_id=pid,data={});db.add(row);db.flush()
+        # Parallel first requests for a new profile may race to create the same row.
+        try:
+            with db.begin_nested():db.add(Preferences(profile_id=pid,data={}))
+        except IntegrityError:pass
+        row=db.get(Preferences,pid)
     return row
 
 def profile_hash(row):
@@ -74,8 +80,9 @@ def require_ready(db,pid):
     return row
 
 def application(db,aid):
+    from .accounts import can_access
     a=db.get(Postulacion,aid)
-    if not a:raise HTTPException(404,'Candidatura no encontrada')
+    if not a or not can_access(db.get(CandidateProfileRow,a.profile_id) if a.profile_id else None):raise HTTPException(404,'Candidatura no encontrada')
     return a,db.get(Vacante,a.vacante_id)
 
 DEFAULT_SETTINGS={'timezone':'America/Lima','digest_time':'21:00','digest_enabled':False,'gmail_sync_enabled':False,'calendar_auto':False,'theme':'light'}
@@ -168,6 +175,7 @@ def approve_cv(vid:int,db:Session=Depends(get_db)):
 def download_cv(vid:int,format:Literal['latex','docx']='latex',db:Session=Depends(get_db)):
     v=db.get(CVVersion,vid)
     if not v:raise HTTPException(404,'Versión no encontrada')
+    application(db,v.application_id)
     content=iter([render_latex(v.snapshot['cv']).encode()]) if format=='latex' else build_docx(v.snapshot['cv'])
     ext='tex' if format=='latex' else 'docx'
     return StreamingResponse(content,media_type='application/octet-stream',headers={'Content-Disposition':f'attachment; filename="JobFlow_CV_{vid}.{ext}"'})
@@ -263,6 +271,7 @@ def create_event(req:EventInput,db:Session=Depends(get_db)):
 def edit_event(eid:str,req:EventInput,db:Session=Depends(get_db)):
     e=db.get(AgendaEvent,eid)
     if not e or e.profile_id!=req.profile_id:raise HTTPException(404,'Evento no encontrado')
+    profile_row(db,e.profile_id)
     if req.application_id and application(db,req.application_id)[0].profile_id!=req.profile_id:raise HTTPException(409,'Perfil incorrecto')
     key=event_key(req);other=db.query(AgendaEvent).filter_by(fingerprint=key).first()
     if other and other.id!=eid:raise HTTPException(409,'Ya existe ese evento')
@@ -275,6 +284,7 @@ def edit_event(eid:str,req:EventInput,db:Session=Depends(get_db)):
 def event_ics(eid:str,db:Session=Depends(get_db)):
     e=db.get(AgendaEvent,eid)
     if not e:raise HTTPException(404,'Evento no encontrado')
+    profile_row(db,e.profile_id)
     d=e.data
     escape=lambda s:str(s).replace('\\','\\\\').replace('\r','').replace('\n','\\n').replace(';','\\;').replace(',','\\,')
     stamp=lambda s:datetime.fromisoformat(s).astimezone(timezone.utc).strftime('%Y%m%dT%H%M%SZ')

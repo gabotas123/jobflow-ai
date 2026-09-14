@@ -908,7 +908,9 @@ def connect_portal(pid: int, portal: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{pid}/{portal}/verify")
-def verify_portal(pid: int, portal: str):
+def verify_portal(pid: int, portal: str, db: Session = Depends(get_db)):
+    from .career import profile_row
+    profile_row(db, pid)
     if login_active(pid) != portal:
         raise HTTPException(409, "No hay una ventana de inicio de sesión abierta para este portal. Pulsa Conectar.")
     _request_login((pid, portal), "verify")
@@ -916,7 +918,9 @@ def verify_portal(pid: int, portal: str):
 
 
 @router.post("/{pid}/{portal}/cancel")
-def cancel_portal(pid: int, portal: str):
+def cancel_portal(pid: int, portal: str, db: Session = Depends(get_db)):
+    from .career import profile_row
+    profile_row(db, pid)
     if login_active(pid) == portal:
         _request_login((pid, portal), "cancel")
     return {"status": "cancelada", "message": "Cerrando la ventana de inicio de sesión."}
@@ -924,6 +928,8 @@ def cancel_portal(pid: int, portal: str):
 
 @router.post("/{pid}/{portal}/disconnect")
 def disconnect_portal(pid: int, portal: str, db: Session = Depends(get_db)):
+    from .career import profile_row
+    profile_row(db, pid)
     if login_active(pid) or db.query(AutoApplyRun).filter_by(profile_id=pid, status="ejecutando").first():
         raise HTTPException(409, "Espera a que termine la ventana abierta o la postulación en curso.")
     acc = account(db, pid, portal)
@@ -950,7 +956,9 @@ def apply_application(aid: int, req: ApplyRequest, db: Session = Depends(get_db)
 
 @router.post("/{pid}/apply-batch", status_code=202)
 def apply_batch(pid: int, req: BatchRequest, db: Session = Depends(get_db)):
+    from .career import profile_row
     from .models import Postulacion
+    profile_row(db, pid)
     results = []
     for aid in dict.fromkeys(req.application_ids):
         app = db.get(Postulacion, aid)
@@ -978,8 +986,12 @@ def application_runs(aid: int, db: Session = Depends(get_db)):
 
 @router.get("/runs/{rid}/captura")
 def run_screenshot(rid: int, db: Session = Depends(get_db)):
+    from .career import profile_row
     run = db.get(AutoApplyRun, rid)
-    name = (run.detail or {}).get("captura") if run else None
+    if not run:
+        raise HTTPException(404, "Captura no disponible")
+    profile_row(db, run.profile_id)
+    name = (run.detail or {}).get("captura")
     path = evidence_dir() / name if name else None
     if not path or not path.exists():
         raise HTTPException(404, "Captura no disponible")

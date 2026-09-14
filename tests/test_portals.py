@@ -10,13 +10,14 @@ from jobflow.db import SessionLocal
 from jobflow import job_extract, job_search
 from jobflow import portal_accounts as portals
 from jobflow.profile_models import CandidateProfile
+from conftest import sign_in
 
 
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(portals, 'ensure_worker', lambda: None)
     with TestClient(app) as c:
-        yield c
+        yield sign_in(c)
 
 
 # --------------------------------------------------------------------------- #

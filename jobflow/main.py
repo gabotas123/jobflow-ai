@@ -77,23 +77,29 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="JobFlow AI", version="0.6.1", lifespan=lifespan)
-from .career import router as career_router, require_ready
+from .accounts import current_user, delete_profile, ensure_profile_slots, router as accounts_router
+from .career import application as owned_application, router as career_router, require_ready
 from .google_integration import router as google_router
 from .portal_accounts import router as portals_router
+app.include_router(accounts_router)
 app.include_router(career_router)
 app.include_router(google_router)
 app.include_router(portals_router)
-# Single owner application: use Codespaces private forwarding or HTTP Basic.
+# Every /api route needs a JobFlow session; HTTP Basic remains an optional outer guard.
 from .security import AccessMiddleware
 app.add_middleware(AccessMiddleware)
 app.mount("/assets", StaticFiles(directory=str(WEB_DIR)), name="assets")
 
 
 def _user(db: Session) -> models.Usuario:
-    u = get_first_user(db)
-    if not u:
-        raise HTTPException(500, "Sin usuario demo")
-    return u
+    return current_user(db)
+
+
+def _form(db: Session, form_id: int) -> models.FormularioResuelto:
+    d = db.get(models.FormularioResuelto, form_id)
+    if not d or not d.profile_id or not get_profile_row(db, d.profile_id):
+        raise HTTPException(404, "Formulario no encontrado")
+    return d
 
 
 def _candidate(db: Session, profile_id: Optional[int] = None):
@@ -127,6 +133,7 @@ def api_profiles(db: Session = Depends(get_db)):
     return [
         {"id": r.id, "nombre": r.nombre, "fuente_cv": r.fuente_cv,
          "verificado": bool((r.estructura or {}).get("verificado")),
+         "postulaciones": db.query(models.Postulacion).filter_by(profile_id=r.id).count(),
          "fecha": r.creado.isoformat() if r.creado else None}
         for r in rows
     ]
@@ -136,9 +143,16 @@ def api_profiles(db: Session = Depends(get_db)):
 async def api_cv_upload(
     file: UploadFile = File(...),
     nombre_hint: str = Form(""),
+    profile_id: Optional[int] = Form(None),
     db: Session = Depends(get_db),
 ):
+    """Sin `profile_id` crea el primer perfil; con él reemplaza los datos de ese perfil."""
     user = _user(db)
+    target = get_profile_row(db, profile_id) if profile_id else None
+    if profile_id and not target:
+        raise HTTPException(404, "Perfil no encontrado")
+    if not target:
+        ensure_profile_slots(db, user)
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in ALLOWED_SUFFIXES:
         raise HTTPException(400, f"Formato no soportado: {suffix}. Usa PDF, DOCX o TXT.")
@@ -161,17 +175,27 @@ async def api_cv_upload(
         raise HTTPException(400, "No se pudo extraer texto del archivo (¿CV escaneado o sin texto?).")
 
     profile = parse_cv(text, filename=file.filename or "", nombre_hint=nombre_hint)
-    row = models.CandidateProfileRow(
-        usuario_id=user.id, nombre=profile.nombre, fuente_cv=file.filename or "CV subido",
-        texto_extraido=text[:200000], estructura=profile.to_dict(),
-    )
-    db.add(row)
-    db.flush()
+    if target:
+        # New CV replaces the extracted data; the changed hash forces a new review and confirmation.
+        row = target
+        profile.nombre = profile.nombre or row.nombre
+        row.nombre, row.fuente_cv = profile.nombre, file.filename or "CV subido"
+        row.texto_extraido, row.estructura = text[:200000], profile.to_dict()
+    else:
+        row = models.CandidateProfileRow(
+            usuario_id=user.id, nombre=profile.nombre, fuente_cv=file.filename or "CV subido",
+            texto_extraido=text[:200000], estructura=profile.to_dict(),
+        )
+        db.add(row)
+        db.flush()
+        from .career import Preferences
+        db.add(Preferences(profile_id=row.id, data={}))
     # The candidate selects targets only after reviewing extracted facts.
     db.commit()
     db.refresh(row)
     result = profile.to_dict()
     result["id"] = row.id
+    result["actualizado"] = bool(target)
     result["texto_extraido"] = text[:1200] + ("…" if len(text) > 1200 else "")
     return result
 
@@ -186,6 +210,14 @@ def api_profile_detail(profile_id: int, db: Session = Depends(get_db)):
     data["fuente_cv"] = row.fuente_cv
     data["texto_extraido"] = (row.texto_extraido or "")[:1200]
     return data
+
+
+@app.delete("/api/profiles/{profile_id}")
+def api_profile_delete(profile_id: int, db: Session = Depends(get_db)):
+    row = get_profile_row(db, profile_id)
+    if not row:
+        raise HTTPException(404, "Perfil no encontrado")
+    return delete_profile(db, row)
 
 
 @app.patch("/api/profiles/{profile_id}")
@@ -333,7 +365,7 @@ def api_puestos_create(profile_id: int, req: PuestoRequest, db: Session = Depend
 @app.put("/api/profiles/{profile_id}/puestos/{puesto_id}")
 def api_puestos_edit(profile_id: int, puesto_id: int, req: PuestoRequest, db: Session = Depends(get_db)):
     p = db.get(models.PuestoObjetivo, puesto_id)
-    if not p or p.profile_id != profile_id:
+    if not p or p.profile_id != profile_id or not get_profile_row(db, profile_id):
         raise HTTPException(404, "Puesto no encontrado")
     p.titulo, p.seniority, p.modality = req.titulo, req.seniority, req.modality
     p.ubicacion, p.rango_salarial = req.ubicacion, req.rango_salarial
@@ -344,6 +376,8 @@ def api_puestos_edit(profile_id: int, puesto_id: int, req: PuestoRequest, db: Se
 
 @app.post("/api/profiles/{profile_id}/puestos/activo")
 def api_puestos_activo(profile_id: int, req: ActivePuestoRequest, db: Session = Depends(get_db)):
+    if not get_profile_row(db, profile_id):
+        raise HTTPException(404, "Perfil no encontrado")
     for p in _puestos(db, profile_id):
         p.activo = (p.id == req.puesto_id)
     db.commit()
@@ -491,9 +525,7 @@ def api_form_prepare(req: FormRunRequest, db: Session = Depends(get_db)):
 
 @app.get("/api/form/{form_id}")
 def api_form_get(form_id: int, db: Session = Depends(get_db)):
-    d = db.get(models.FormularioResuelto, form_id)
-    if not d:
-        raise HTTPException(404, "Formulario no encontrado")
+    d = _form(db, form_id)
     return {
         "form_id": d.id, "plataforma": d.plataforma,
         "campos": d.campos_detectados, "mapeo": d.mapeo_semantico,
@@ -504,6 +536,7 @@ def api_form_get(form_id: int, db: Session = Depends(get_db)):
 
 @app.post("/api/form/{form_id}/approve")
 def api_form_approve(form_id: int, req: ApproveRequest, db: Session = Depends(get_db)):
+    _form(db, form_id)
     try:
         d = approve(db, form_id, req.edits)
     except ValueError as exc:
@@ -515,6 +548,7 @@ def api_form_approve(form_id: int, req: ApproveRequest, db: Session = Depends(ge
 
 @app.post("/api/form/{form_id}/submit")
 def api_form_submit(form_id: int, db: Session = Depends(get_db)):
+    _form(db, form_id)
     try:
         d = submit(db, form_id)
     except ValueError as exc:
@@ -626,9 +660,7 @@ def import_job(req: JobImportRequest, db: Session = Depends(get_db)):
 
 @app.patch("/api/applications/{application_id}")
 def update_application(application_id: int, req: ApplicationUpdateRequest, db: Session = Depends(get_db)):
-    app = db.get(models.Postulacion, application_id)
-    if not app:
-        raise HTTPException(404, "Oportunidad no encontrada")
+    app, _ = owned_application(db, application_id)
     if req.estado == "duplicado_descartado":
         if app.estado != "pendiente_revision_duplicado" or not req.nota.strip():
             raise HTTPException(422, "Indica por qué los anuncios corresponden a vacantes diferentes.")
@@ -692,9 +724,7 @@ def import_email(req: EmailImportRequest, db: Session = Depends(get_db)):
 
 @app.post("/api/applications/{application_id}/prepare")
 def prepare_application(application_id: int, req: FormRunRequest, db: Session = Depends(get_db)):
-    app = db.get(models.Postulacion, application_id)
-    if not app:
-        raise HTTPException(404, "Oportunidad no encontrada")
+    app, _ = owned_application(db, application_id)
     if app.estado in ("incompatible", "pendiente_revision_duplicado", "vencida", "rechazada"):
         raise HTTPException(409, "Esta oportunidad requiere revisión antes de preparar respuestas.")
     if db.query(AuditEvent).filter_by(application_id=app.id, action="postulada").first():

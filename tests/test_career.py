@@ -9,10 +9,11 @@ from jobflow.main import app
 from jobflow.db import SessionLocal
 from jobflow.career import CVVersion, AgendaEvent
 from jobflow import google_integration as google
+from conftest import sign_in
 
 @pytest.fixture
 def client():
-    with TestClient(app) as c:yield c
+    with TestClient(app) as c:yield sign_in(c)
 
 def candidate(client):
     r=client.post('/api/cv/upload',files={'file':('cv.txt','ANA PEREZ\nEducación\nBachiller en Economía\nHabilidades\nExcel','text/plain')})

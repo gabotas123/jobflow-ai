@@ -1,7 +1,8 @@
-"""Single-owner deployment guard; Codespaces also keeps its forwarded port private."""
+"""Deployment guard (optional HTTP Basic) plus per-account sessions for the API."""
 import base64
 import hmac
 import os
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
@@ -24,14 +25,22 @@ class AccessMiddleware(BaseHTTPMiddleware):
             if not valid:
                 return Response("Acceso privado", status_code=401,
                                 headers={"WWW-Authenticate": 'Basic realm="JobFlow", charset="UTF-8"'})
-        # Cross-site writes are never authorized by a previously cached Basic login.
+        # Cross-site writes are never authorized by a previously cached Basic login or session cookie.
         if request.method not in ("GET", "HEAD", "OPTIONS"):
             origin = request.headers.get("origin")
             if origin:
                 from urllib.parse import urlsplit
                 if urlsplit(origin).netloc != request.headers.get("host"):
                     return Response("Origen no autorizado", status_code=403)
-        response = await call_next(request)
+        from .accounts import CURRENT_USER, auth_response
+        denied = await run_in_threadpool(auth_response, request)
+        if denied:
+            return denied
+        token = CURRENT_USER.set(getattr(request.state, "user_id", None))
+        try:
+            response = await call_next(request)
+        finally:
+            CURRENT_USER.reset(token)
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"

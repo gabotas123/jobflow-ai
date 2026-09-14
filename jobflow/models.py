@@ -16,6 +16,8 @@ class Usuario(Base):
     id = Column(Integer, primary_key=True)
     nombre = Column(String, nullable=False)
     email = Column(String, unique=True)
+    username = Column(String)                   # acceso a JobFlow (índice único en accounts.migrate)
+    password_hash = Column(String, default="")  # scrypt; vacío = usuario anterior a las cuentas
     ubicacion = Column(String, default="")
     oauth_tokens = Column(Text, default="")  # tokens OAuth cifrados (validar en MVP)
     creado = Column(DateTime, default=datetime.utcnow)

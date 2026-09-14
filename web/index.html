@@ -5,7 +5,23 @@
 <meta name="theme-color" content="#1b7f45"><title>JobFlow · Tu próxima oportunidad</title>
 <link rel="stylesheet" href="/assets/styles.css">
 </head>
-<body>
+<body class="signed-out">
+<section id="auth-screen" class="auth-screen" hidden>
+<div class="panel auth-card">
+<span class="brand"><span class="brand-mark">J</span>JobFlow<span class="brand-ai">AI</span></span>
+<div class="auth-tabs" role="tablist" aria-label="Acceso"><button type="button" role="tab" data-auth-mode="login">Iniciar sesión</button><button type="button" role="tab" data-auth-mode="register">Crear cuenta</button></div>
+<h1 id="auth-title">Hola de nuevo</h1><p id="auth-subtitle">Entra a tu espacio de búsqueda.</p>
+<form id="auth-form" data-mode="login">
+<label class="register-only" hidden>Tu nombre<input name="nombre" autocomplete="name" maxlength="120" placeholder="Cómo quieres que te llamemos"></label>
+<label>Usuario<input name="username" required autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="40" placeholder="por ejemplo, mateo.sm"></label>
+<label>Contraseña<input name="password" type="password" required autocomplete="current-password" maxlength="128"></label>
+<label class="register-only" hidden>Repite la contraseña<input name="password2" type="password" autocomplete="new-password" maxlength="128"></label>
+<p id="auth-error" role="alert" hidden></p>
+<button class="button primary" id="auth-submit">Iniciar sesión</button>
+</form>
+<p class="auth-note">Cada cuenta tiene sus propios perfiles, postulaciones y conexiones. Esta contraseña es solo para JobFlow: nunca uses aquí la de Bumeran, Computrabajo u otro portal.</p>
+</div>
+</section>
 <a class="skip" href="#content">Saltar al contenido</a>
 <aside class="sidebar">
 <a class="brand" href="#today"><span class="brand-mark">J</span>JobFlow<span class="brand-ai">AI</span></a>
@@ -20,7 +36,7 @@
 <div class="sidebar-bottom"><a href="#connections">Conexiones y preferencias</a><p>Tu experiencia. Tu siguiente oportunidad.</p></div>
 </aside>
 <div class="shell">
-<header class="topbar"><span class="workspace-label">Mi espacio de búsqueda</span><div class="top-actions"><label class="profile-picker">Perfil<select id="profile-picker" aria-label="Perfil activo"></select></label><button class="avatar" id="avatar" aria-label="Abrir mi perfil">J</button></div></header>
+<header class="topbar"><span class="workspace-label">Mi espacio de búsqueda</span><div class="top-actions"><label class="profile-picker">Perfil<select id="profile-picker" aria-label="Perfil activo"></select></label><div class="account"><button class="avatar" id="avatar" aria-label="Mi cuenta" aria-haspopup="true" aria-expanded="false" aria-controls="account-menu">J</button><div id="account-menu" class="account-menu" hidden><p>Sesión iniciada como<strong id="account-name"></strong><small id="account-username"></small></p><a href="#profile">Mi perfil</a><a href="#connections">Conexiones y preferencias</a><button class="button secondary" id="logout" type="button">Cerrar sesión</button></div></div></div></header>
 <main id="content" tabindex="-1">
 <div id="notice" role="status" aria-live="polite" hidden></div>
 <section data-view="today">
@@ -32,8 +48,10 @@
 </section>
 <section data-view="profile" hidden>
 <div class="page-heading"><div><p class="eyebrow">PRIMERO, CONOZCÁMONOS</p><h1>Tu experiencia, bien contada.</h1><p>Confirma tu CV y dinos a qué puestos te gustaría postular.</p></div></div>
+<article class="panel claim-panel" id="claim-panel" hidden><h2>Perfiles guardados antes de las cuentas</h2><p>Estos perfiles se crearon cuando JobFlow aún no tenía cuentas. Marca solo los tuyos: al pasarlos a tu cuenta, con sus postulaciones, dejarán de estar disponibles para las demás cuentas.</p><form id="claim-form"><div id="claim-list"></div><button class="button primary">Pasar a mi cuenta</button></form></article>
 <div class="steps"><span>1 · Carga tu CV</span><span>2 · Revisa los datos</span><span>3 · Elige tus objetivos</span></div>
-<article class="panel upload-panel"><div><h2>Comienza con tu CV</h2><p>PDF, DOCX o TXT · hasta 10 MB. También puedes revisar el perfil existente.</p></div><form id="upload-form"><label class="file-input">Seleccionar archivo<input name="file" type="file" required accept=".pdf,.docx,.txt"></label><button class="button primary">Extraer datos del CV</button></form></article>
+<article class="panel" id="profiles-panel" hidden><div class="section-heading"><h2>Tus perfiles</h2><span id="profiles-count" class="badge"></span></div><p id="profiles-note"></p><div id="profiles-list"></div><div class="actions"><button class="button secondary danger" id="delete-profiles" type="button">Eliminar seleccionados</button></div></article>
+<article class="panel upload-panel"><div><h2 id="upload-title">Comienza con tu CV</h2><p id="upload-text">PDF, DOCX o TXT · hasta 10 MB.</p></div><form id="upload-form"><label class="file-input">Seleccionar archivo<input name="file" type="file" required accept=".pdf,.docx,.txt"></label><div class="actions upload-actions"><button class="button primary" id="upload-main" data-upload="update">Extraer datos del CV</button><button class="button secondary" id="upload-new" data-upload="new" hidden>Crear perfil nuevo</button></div><p id="upload-limit" class="muted-note" hidden></p></form></article>
 <article class="panel"><div class="section-heading"><h2>Revisa los datos extraídos</h2><span id="profile-status" class="badge">Por revisar</span></div><p>Corrige los datos y las funciones. Confirma únicamente información que puedas sustentar.</p><form id="profile-form"><div id="profile-fields" class="form-grid"></div><div id="experience-fields"></div><div class="actions"><button class="button secondary" type="button" id="add-experience">Añadir experiencia</button><button class="button primary">Guardar correcciones</button></div></form><div class="confirm-box"><label class="check"><input type="checkbox" id="confirm-check">He revisado los datos guardados y confirmo que son verdaderos.</label><button class="button primary" id="confirm-profile">Confirmar datos guardados</button><p>Tu confirmación queda registrada. Los cambios posteriores requieren una nueva revisión.</p></div></article>
 <article class="panel" id="goals-panel"><h2>¿A qué puestos quieres postular?</h2><p>Ordénalos por prioridad. Puedes elegir un rumbo distinto a tu último empleo.</p><form id="goals-form"><label>Puestos deseados, uno por línea<textarea name="titles" rows="3" required placeholder="Analista de cobranzas&#10;Analista junior de control de gestión"></textarea></label><div class="form-grid"><label>Ubicación<input name="location" required placeholder="Lima"></label><label>Modalidad<select name="modality"><option>Presencial o híbrido</option><option>Presencial</option><option>Híbrido</option><option>Remoto</option></select></label><label>Nivel<select name="seniority"><option value="analista_junior">Analista junior</option><option value="asistente">Asistente</option><option value="analista">Analista</option></select></label><label>Expectativa salarial<input name="salary" placeholder="S/2,500–2,800"></label></div><label>Restricciones para revisar en cada oferta<textarea name="restrictions" rows="2" placeholder="Por ejemplo: sin turnos nocturnos"></textarea></label><button class="button primary">Guardar objetivos y continuar</button></form></article>
 </section>

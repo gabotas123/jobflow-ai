@@ -119,12 +119,19 @@ def get_first_user(db: Session) -> Optional[models.Usuario]:
 #  Helpers de perfiles de candidato
 # --------------------------------------------------------------------------- #
 def list_profile_rows(db: Session) -> List[models.CandidateProfileRow]:
-    return (db.query(models.CandidateProfileRow)
-            .order_by(models.CandidateProfileRow.creado.asc()).all())
+    """Perfiles de la cuenta con sesión iniciada."""
+    from .accounts import CURRENT_USER
+    q = db.query(models.CandidateProfileRow)
+    if CURRENT_USER.get() is not None:
+        q = q.filter_by(usuario_id=CURRENT_USER.get())
+    return q.order_by(models.CandidateProfileRow.creado.asc()).all()
 
 
 def get_profile_row(db: Session, profile_id: int) -> Optional[models.CandidateProfileRow]:
-    return db.get(models.CandidateProfileRow, profile_id)
+    """El perfil, solo si pertenece a la cuenta con sesión iniciada."""
+    from .accounts import can_access
+    row = db.get(models.CandidateProfileRow, profile_id)
+    return row if can_access(row) else None
 
 
 def profile_from_row(row: models.CandidateProfileRow) -> CandidateProfile:

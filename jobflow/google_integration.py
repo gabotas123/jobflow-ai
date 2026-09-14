@@ -112,6 +112,7 @@ def callback(request:Request,code:str='',state:str='',error:str='',db:Session=De
 
 @router.post('/{pid}/{service}/disconnect')
 def disconnect(pid:int,service:str,db:Session=Depends(get_db)):
+    profile_row(db,pid)
     c=db.query(GoogleConnection).filter_by(profile_id=pid,service=service).first()
     if c:db.delete(c)
     p=prefs(db,pid);flag={'gmail_send':'digest_enabled','gmail_read':'gmail_sync_enabled','calendar':'calendar_auto'}.get(service)
@@ -160,6 +161,7 @@ def sync_event(db,e):
 def event_sync(eid:str,db:Session=Depends(get_db)):
     e=db.get(AgendaEvent,eid)
     if not e:raise HTTPException(404,'Evento no encontrado')
+    profile_row(db,e.profile_id)
     return sync_event(db,e)
 
 def plain_parts(payload):
@@ -188,7 +190,8 @@ def sync_gmail(db,pid):
     p=prefs(db,pid);p.data={**p.data,'gmail_last_sync':datetime.now(timezone.utc).isoformat()};db.commit()
     return {'imported':count,'more_available':bool(listing.get('nextPageToken')),'note':'Correos externos sin validar; revisa el contexto antes de actuar.'}
 @router.post('/{pid}/gmail/sync')
-def gmail_sync(pid:int,db:Session=Depends(get_db)):return sync_gmail(db,pid)
+def gmail_sync(pid:int,db:Session=Depends(get_db)):
+    profile_row(db,pid);return sync_gmail(db,pid)
 
 def send_digest(db,pid):
     c=connection(db,pid,'gmail_send');summary=daily_summary(db,pid)
@@ -213,7 +216,8 @@ def send_digest(db,pid):
         delivery.detail={'error':'Comprueba Enviados en Gmail; no se repetirá automáticamente.'};db.commit();raise
     return {'status':'enviado','recipient':c.email}
 @router.post('/{pid}/digest/send')
-def digest(pid:int,db:Session=Depends(get_db)):return send_digest(db,pid)
+def digest(pid:int,db:Session=Depends(get_db)):
+    profile_row(db,pid);return send_digest(db,pid)
 
 @router.get('/{pid}/mail')
 def profile_mail(pid:int,db:Session=Depends(get_db)):

@@ -5,6 +5,28 @@ Todos los cambios del proyecto, con fecha y commit. El historial vivo está en:
 
 ---
 
+## 09-13 · Cuentas de JobFlow con sesiones independientes
+- **Crear cuenta e iniciar sesión** con usuario y contraseña propios de JobFlow.
+  La contraseña se guarda solo como hash scrypt; la sesión es una cookie HttpOnly
+  de 30 días. Tras 5 intentos fallidos el usuario se bloquea 5 minutos.
+- **Cada cuenta ve solo lo suyo**: perfiles, postulaciones, CV, agenda, capturas y
+  conexiones de portales/Google. Toda ruta `/api` exige sesión (401 si no hay).
+- **Perfiles anteriores a las cuentas**: aparecen en «Mi perfil» para pasarlos a
+  la cuenta de su dueño, con sus postulaciones. Después dejan de verse en las demás.
+- **Subir otro CV ya no duplica perfiles**: «Extraer datos del CV» actualiza el
+  perfil activo (tras confirmar) y exige revisar y confirmar sus datos otra vez.
+  Solo se crea un perfil nuevo cuando la cuenta aún no tiene ninguno.
+- **Máximo 3 perfiles por cuenta** (`JOBFLOW_MAX_PROFILES`). Al llegar al límite,
+  «Crear perfil nuevo» se desactiva y el servidor responde 409; actualizar un perfil
+  existente sigue permitido. Reclamar perfiles anteriores también respeta el límite.
+- **Borrar perfiles** desde «Tus perfiles», uno o varios a la vez, con confirmación.
+  Se borra todo lo del perfil: postulaciones y su historial, CV adaptados, respuestas,
+  agenda, conexiones de portales y Google, capturas y la carpeta del navegador.
+- Corregido un error 500 al abrir un perfil recién creado (dos peticiones creaban
+  a la vez sus preferencias). Mostraba «El servidor no devolvió una respuesta válida».
+- Menú de cuenta (avatar) con «Cerrar sesión». La base existente se migra sola
+  (columnas `username`/`password_hash` y tabla `app_sessions`).
+
 ## 09-13 · v0.6.1 — Inicio de sesión que sí conecta
 - El login se quedaba cargando: los portales bloquean el navegador de automatización.
   Ahora JobFlow abre **tu Chrome/Edge** con un perfil propio, y hay botones
