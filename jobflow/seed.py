@@ -1,6 +1,7 @@
 """Inicializacion, seed y helpers de perfiles de candidato."""
 from __future__ import annotations
 
+import os
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
@@ -37,7 +38,9 @@ def ensure_seed() -> None:
                 row.estructura = data
                 row.fuente_cv = data["fuente_cv"]
         db.commit()
-        if db.query(models.Usuario).count() == 0:
+        # The demo profile holds a real person's CV data and has no owner, so any new
+        # account could claim it. It is only created when explicitly requested.
+        if db.query(models.Usuario).count() == 0 and os.getenv("JOBFLOW_SEED_DEMO", "false").lower() == "true":
             user = models.Usuario(nombre=FULL_NAME, email=EMAIL, ubicacion=LOCATION)
             db.add(user)
             db.flush()

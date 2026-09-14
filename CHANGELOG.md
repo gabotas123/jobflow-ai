@@ -14,6 +14,14 @@ Todos los cambios del proyecto, con fecha y commit. El historial vivo está en:
   portal; HiringRoom y Pandapé llevan a pegar el aviso en Oportunidades.
 - `GET /api/portals/{pid}` devuelve `prepared` con esos portales.
 
+## 09-13 · Privacidad de las cuentas: sin perfil precargado ni reclamos públicos
+- Una base nueva **ya no crea el perfil de ejemplo** con datos de una persona real:
+  quedaba sin dueño y cualquier cuenta nueva podía reclamarlo. Solo se crea con
+  `JOBFLOW_SEED_DEMO=true` (lo usan las pruebas).
+- **En servidores públicos** (Render o `JOBFLOW_REQUIRE_AUTH=true`) no se listan ni
+  reclaman perfiles anteriores; en la instalación local sí, para pasar tus datos a
+  tu cuenta. `JOBFLOW_ALLOW_CLAIM` permite cambiarlo explícitamente.
+
 ## 09-13 · Niveles de prácticas y roles superiores; restricciones con opciones
 - **Nivel** en «¿A qué puestos quieres postular?»: Practicante preprofesional,
   Practicante profesional, Asistente, Analista junior, Analista, Analista senior o

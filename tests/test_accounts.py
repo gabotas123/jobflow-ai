@@ -185,3 +185,23 @@ def test_claim_profiles_created_before_accounts():
         assert pid not in [p['id'] for p in b.get('/api/account/unclaimed').json()]
         assert b.post('/api/account/claim', json={'profile_ids': [pid]}).json()['claimed'] == 0
         assert b.get(f'/api/profiles/{pid}').status_code == 404
+
+
+def test_public_server_never_exposes_profiles_without_owner(monkeypatch):
+    db = SessionLocal()
+    legacy = CandidateProfileRow(usuario_id=None, nombre='Datos de otra persona', fuente_cv='cv.pdf', estructura={})
+    db.add(legacy)
+    db.commit()
+    pid = legacy.id
+    db.close()
+    monkeypatch.setenv('RENDER', 'true')
+    with TestClient(app) as stranger:
+        new_account(stranger, 'desconocido')
+        assert stranger.get('/api/account/unclaimed').json() == []
+        assert stranger.post('/api/account/claim', json={'profile_ids': [pid]}).json()['claimed'] == 0
+        assert stranger.get(f'/api/profiles/{pid}').status_code == 404
+    monkeypatch.setenv('JOBFLOW_ALLOW_CLAIM', 'true')
+    assert accounts.claiming_allowed()
+    monkeypatch.delenv('RENDER')
+    monkeypatch.delenv('JOBFLOW_ALLOW_CLAIM')
+    assert accounts.claiming_allowed()
