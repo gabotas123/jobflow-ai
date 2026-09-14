@@ -5,6 +5,13 @@ Todos los cambios del proyecto, con fecha y commit. El historial vivo está en:
 
 ---
 
+## 09-13 · Fechas de experiencia con selector de mes y año
+- **Inicio** y **Fin** de cada experiencia abren un menú con el año (‹ ›) y los 12
+  meses. No permite meses futuros, un inicio posterior al fin ni un fin anterior al inicio.
+- **Fin** incluye «Hasta la actualidad» y ambos permiten «Borrar fecha».
+- Las fechas se guardan como «Mar. 2024» o «Actualidad», el mismo texto que usa el CV.
+  Una fecha anterior sin mes (p. ej. «2022») se conserva y se marca para elegir el mes.
+
 ## 09-13 · Listas en «Mi perfil»: salario, disponibilidad y movilidad
 - **Pretensión salarial** y **expectativa salarial** se eligen de rangos mensuales
   en soles (de «Hasta S/1,500» a «Más de S/8,000»).
