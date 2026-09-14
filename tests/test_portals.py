@@ -120,6 +120,23 @@ def test_plan_fills_only_confirmed_facts():
     assert plan['4']['action'] == 'fill' and plan['4']['source'] == 'Respuesta aprobada por ti'
 
 
+def test_profile_list_choices_work_with_autofill():
+    """The option lists in «Mi perfil» (web/app.js) must stay usable by the executor."""
+    yes_no = ['Selecciona', 'Sí', 'No']
+    assert portals.choose_option(yes_no, 'Sí, cuento con movilidad propia') == 'Sí'
+    assert portals.choose_option(yes_no, 'Sí, cuento con movilidad propia y licencia de conducir') == 'Sí'
+    assert portals.choose_option(yes_no, 'No, me movilizo en transporte público') == 'No'
+    assert portals.choose_option(yes_no, 'No cuento con movilidad propia') == 'No'
+    fields = [{'key': '1', 'label': 'Salario pretendido', 'type': 'text', 'required': True, 'filled': False},
+              {'key': '2', 'label': 'Disponibilidad para incorporarte', 'type': 'select', 'options': ['Inmediata', 'En 1 mes'], 'required': True, 'filled': False}]
+    for salary, expected in (('S/2,500 – S/3,000', '2500'), ('Hasta S/1,500', '1500'), ('Más de S/8,000', '8000')):
+        p = confirmed_profile()
+        p.rango_salarial = salary
+        plan = {s['key']: s for s in portals.plan_fields(fields, p, 'Analista', {})}
+        assert plan['1']['value'] == expected
+        assert plan['2'] == {**plan['2'], 'action': 'select', 'value': 'Inmediata'}
+
+
 def test_choose_option_is_conservative():
     assert portals.choose_option(['Sí', 'No'], 'Si, movilidad propia') == 'Sí'
     assert portals.choose_option(['Básico', 'Intermedio', 'Avanzado'], 'Avanzado') == 'Avanzado'

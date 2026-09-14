@@ -5,6 +5,15 @@ Todos los cambios del proyecto, con fecha y commit. El historial vivo está en:
 
 ---
 
+## 09-13 · Listas en «Mi perfil»: salario, disponibilidad y movilidad
+- **Pretensión salarial** y **expectativa salarial** se eligen de rangos mensuales
+  en soles (de «Hasta S/1,500» a «Más de S/8,000»).
+- **Disponibilidad** (Inmediata, En 1 semana, En 2 semanas, En 1 mes, En más de 1 mes)
+  y **movilidad** (con o sin movilidad propia) también son listas.
+- Las opciones de movilidad empiezan por «Sí,»/«No» para que la postulación automática
+  responda las preguntas Sí/No de los portales; del rango salarial se usa el mínimo.
+- Un valor escrito antes que no esté en la lista se conserva como «(valor actual)».
+
 ## 09-13 · Cuentas de JobFlow con sesiones independientes
 - **Crear cuenta e iniciar sesión** con usuario y contraseña propios de JobFlow.
   La contraseña se guarda solo como hash scrypt; la sesión es una cookie HttpOnly
