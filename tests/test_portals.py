@@ -137,6 +137,18 @@ def test_profile_list_choices_work_with_autofill():
         assert plan['2'] == {**plan['2'], 'action': 'select', 'value': 'Inmediata'}
 
 
+def test_portal_status_lists_prepared_portals_without_login(client):
+    pid = client.get('/api/profiles').json()[0]['id']
+    status = client.get(f'/api/portals/{pid}').json()
+    assert [a['portal'] for a in status['accounts']] == ['bumeran', 'computrabajo']
+    prepared = {p['portal']: p for p in status['prepared']}
+    assert set(prepared) == {'linkedin', 'indeed', 'hiringroom', 'pandape'}
+    assert prepared['linkedin']['url'].startswith('https://www.linkedin.com/') and 'automatización' in prepared['linkedin']['nota']
+    for portal in prepared:  # «Solo preparación»: never opens a login or stores a session
+        r = client.post(f'/api/portals/{pid}/{portal}/connect')
+        assert r.status_code == 404 and r.json()['detail'] == portals.UNSUPPORTED[portal]
+
+
 def test_choose_option_is_conservative():
     assert portals.choose_option(['Sí', 'No'], 'Si, movilidad propia') == 'Sí'
     assert portals.choose_option(['Básico', 'Intermedio', 'Avanzado'], 'Avanzado') == 'Avanzado'

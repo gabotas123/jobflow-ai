@@ -5,6 +5,15 @@ Todos los cambios del proyecto, con fecha y commit. El historial vivo está en:
 
 ---
 
+## 09-13 · Portales de empleo dentro de «Mi perfil»
+- La sección **Portales de empleo** pasa de «Conexiones» a «Mi perfil» (paso 4 y
+  enlace `#portals`). Bumeran y Computrabajo se conectan igual que antes.
+- **LinkedIn, Indeed, HiringRoom y Pandapé** aparecen como «Solo preparación»: JobFlow no
+  inicia sesión ni postula en ellos (condiciones de uso o formularios propios de cada
+  empresa). LinkedIn muestra tu enlace de perfil y abre LinkedIn Empleos; Indeed abre el
+  portal; HiringRoom y Pandapé llevan a pegar el aviso en Oportunidades.
+- `GET /api/portals/{pid}` devuelve `prepared` con esos portales.
+
 ## 09-13 · Niveles de prácticas y roles superiores; restricciones con opciones
 - **Nivel** en «¿A qué puestos quieres postular?»: Practicante preprofesional,
   Practicante profesional, Asistente, Analista junior, Analista, Analista senior o
