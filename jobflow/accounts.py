@@ -296,8 +296,19 @@ def me(request: Request, db: Session = Depends(get_db)):
     return user_data(user)
 
 
+def claiming_allowed() -> bool:
+    """Reclamar perfiles anteriores solo en la instalación local del dueño.
+
+    En un servidor público cualquiera puede registrarse, y quedarse con datos ajenos.
+    """
+    public = bool(os.getenv("RENDER")) or os.getenv("JOBFLOW_REQUIRE_AUTH", "false").lower() == "true"
+    return os.getenv("JOBFLOW_ALLOW_CLAIM", "false" if public else "true").lower() == "true"
+
+
 def unclaimed_rows(db: Session) -> list[CandidateProfileRow]:
     """Perfiles creados antes de las cuentas (dueño sin contraseña o sin dueño)."""
+    if not claiming_allowed():
+        return []
     legacy = [u.id for u in db.query(Usuario).filter(or_(Usuario.password_hash.is_(None), Usuario.password_hash == ""))]
     return (db.query(CandidateProfileRow)
             .filter(or_(CandidateProfileRow.usuario_id.is_(None), CandidateProfileRow.usuario_id.in_(legacy)))
