@@ -35,3 +35,4 @@ pip_install.log
 *.db-shm
 *.bundle
 *.zip
+data/*.respaldo-*
