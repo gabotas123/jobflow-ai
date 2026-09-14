@@ -69,6 +69,41 @@ CAREERS = ("economia", "contabilidad", "administracion", "finanzas", "ingenieria
            "estadistica", "negocios", "marketing", "derecho", "psicologia", "sistemas", "comunicaciones")
 
 
+# Career levels in order. A vacancy fits when its level is the chosen one or an adjacent one.
+LEVELS = {
+    "practicante_preprofesional": (0, "Practicante preprofesional"),
+    "practicante_profesional": (1, "Practicante profesional"),
+    "asistente": (2, "Asistente"),
+    "analista_junior": (3, "Analista junior"),
+    "analista": (4, "Analista"),
+    "analista_senior": (5, "Analista senior o especialista"),
+    "coordinador": (6, "Coordinador o supervisor"),
+    "jefe": (7, "Jefe"),
+    "gerente": (8, "Gerente o director"),
+}
+DEFAULT_LEVEL = "analista_junior"
+ROLE_NOUNS = ((r"practicantes?|practicas|pre[- ]?profesionales?|trainee|pasantes?", None), (r"asistentes?|auxiliar(?:es)?", 2),
+              (r"analistas?", 4), (r"especialistas?", 5), (r"coordinador(?:a|es)?|supervisor(?:a|es)?", 6),
+              (r"jef(?:e|a|es|atura)", 7), (r"gerentes?|director(?:a|es)?|head", 8))
+
+
+def title_levels(title):
+    """Levels a job title can belong to (by its first role word), or None when it does not say."""
+    t = norm(title)
+    found = [(m.start(), level) for pattern, level in ROLE_NOUNS for m in [re.search(rf"\b(?:{pattern})\b", t)] if m]
+    junior, senior = re.search(r"\b(junior|jr)\b", t), re.search(r"\b(senior|sr)\b", t)
+    if not found:
+        return {3} if junior else {5} if senior else None
+    level = min(found)[1]
+    if level is None:  # practicante
+        if re.search(r"\bpre[- ]?profesional", t):
+            return {0}
+        return {1} if re.search(r"\bprofesional", t) else {0, 1}
+    if level == 4 and (junior or senior):
+        return {3} if junior else {5}
+    return {level}
+
+
 def select_cv(title):
     t = norm(title)
     for domain, label in (("cobranzas", "cobranzas"), ("gestion", "gestion"), ("datos", "datos")):
@@ -77,12 +112,15 @@ def select_cv(title):
     return "maestro"
 
 
-def evaluate(profile, job):
+def evaluate(profile, job, level=None):
     """Conservative evidence score, not a probability of recruitment success.
 
     Unprovided criteria get zero and are separately reported as unknown. No
     generic experience is treated as verified experience in a specific role.
+    `level` is the career level the candidate chose in their goals (LEVELS key).
     """
+    level = level if level in LEVELS else DEFAULT_LEVEL
+    chosen = LEVELS[level][0]
     title = norm(job.get("titulo"))
     experience = norm(" ".join(" ".join(e.get("bullets", [])) + " " + e.get("cargo", "")
                                 for e in profile.experiencia))
@@ -92,8 +130,11 @@ def evaluate(profile, job):
         parts.append(dict(criterio=name, peso=weight, puntos=score, motivo=reason, conocido=known))
         if not known:
             unknown.append(name)
-    if re.search(r"\b(gerente|jefe|jefatura|director|senior|sr|practicante)\b", title):
-        blocks.append("Nivel fuera del alcance asistente/junior/analista autorizado")
+    job_levels = title_levels(title)
+    level_ok = bool(job_levels) and any(abs(n - chosen) <= 1 for n in job_levels)
+    if job_levels and not level_ok:
+        label = next(v[1] for v in LEVELS.values() if v[0] == min(job_levels))
+        blocks.append(f"Nivel del aviso ({label}) distinto del nivel que elegiste ({LEVELS[level][1]})")
     if any(x in title for x in ("teleoperador", "asesor de ventas", "asesor call center", "asesor de cobranzas")):
         blocks.append("Funciones comerciales o teleoperación fuera del perfil autorizado")
     if job.get("vigente") is False:
@@ -109,7 +150,7 @@ def evaluate(profile, job):
         if match:
             years = float(match.group(1))
     relevant = job.get("meses_relevantes_confirmados")
-    if years is not None and years >= 3:
+    if years is not None and years >= 3 and chosen <= LEVELS["analista_junior"][0]:
         blocks.append("Exige tres o más años obligatorios de experiencia específica")
     if years is not None and relevant is not None and relevant < years * 12:
         blocks.append("Experiencia específica confirmada inferior a la obligatoria")
@@ -128,8 +169,8 @@ def evaluate(profile, job):
     edu_ok = bool(education) and (any(education in norm(e) for e in profile.educacion)
                                   or any(c in studied for c in careers))
     add("Formación", 10, 10 if edu_ok else 0, "Coincidencia textual con formación declarada", bool(education))
-    junior = bool(re.search(r"\b(asistente|junior|analista)\b", title))
-    add("Seniority", 10, 10 if junior and not blocks else 0, "Nivel indicado en el título", junior or bool(blocks))
+    add("Seniority", 10, 10 if level_ok and not blocks else 0, "Nivel indicado en el título comparado con el nivel elegido",
+        bool(job_levels))
     location = norm(job.get("ubicacion"))
     modality = norm(job.get("modalidad"))
     loc_ok = bool(location and (location in norm(profile.ubicacion) or "lima" in location and "lima" in norm(profile.ubicacion)))

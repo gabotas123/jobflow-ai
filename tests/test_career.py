@@ -42,9 +42,9 @@ def test_onboarding_and_target_search(client,monkeypatch):
     ready(client,pid)
     targets=client.get(f'/api/profiles/{pid}/puestos').json()
     calls=[]
-    monkeypatch.setattr('jobflow.main.search_all',lambda p,platforms,location,query: calls.append(query) or [])
+    monkeypatch.setattr('jobflow.main.search_all',lambda p,platforms,location,query,level: calls.append((query,level)) or [])
     assert client.post('/api/jobs/search',json={'profile_id':pid,'target_id':targets[1]['id']}).status_code==200
-    assert calls==['Analista de costos']
+    assert calls==[('Analista de costos','analista_junior')]
     client.patch(f'/api/profiles/{pid}',json={'nombre':'Ana Actualizada'})
     assert not client.get(f'/api/career/profiles/{pid}/setup').json()['confirmed']
     assert client.post('/api/jobs/search',json={'profile_id':pid}).status_code==409

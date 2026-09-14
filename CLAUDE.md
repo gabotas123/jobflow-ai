@@ -24,7 +24,7 @@ FastAPI + SQLAlchemy (SQLite) + SPA sin framework en `web/` (JS compacto en `app
 | `jobflow/accounts.py` | Cuentas de JobFlow: registro/login/logout (`/api/auth/*`), sesiones (`app_sessions`, cookie `jobflow_session`), migración de columnas y reclamo de perfiles anteriores (`/api/account/*`). `AccessMiddleware` exige sesión en `/api` y fija `CURRENT_USER`. |
 | `jobflow/cv_parser.py`, `cv_generator.py` | Lectura de CV (PDF/DOCX/TXT) y generación LaTeX/DOCX. |
 | `jobflow/career.py` | Confirmación del perfil (hash), objetivos, CV adaptado y versionado por candidatura, reclutadores, agenda, resumen diario. |
-| `jobflow/workflow.py` | `evaluate()` (puntaje 0–100 con criterios desconocidos = 0 y exclusiones), `register()` con deduplicación y auditoría (`AuditEvent`). |
+| `jobflow/workflow.py` | `evaluate(profile, job, level)` (puntaje 0–100 con criterios desconocidos = 0 y exclusiones; `level` es el nivel de los objetivos, ver `LEVELS`/`title_levels`), `register()` con deduplicación y auditoría (`AuditEvent`). |
 | `jobflow/job_extract.py` | Lee un aviso por enlace: JSON-LD `JobPosting` (Computrabajo, LinkedIn, otros) y API pública de Bumeran; `enrich()` detecta herramientas/años/formación. `fetch_public()` bloquea IPs privadas en cada redirección. |
 | `jobflow/job_search.py` | Búsqueda: Bumeran (API `searchV2`), Computrabajo (tarjetas HTML), LinkedIn (listado público). Indeed: solo enlace. |
 | `jobflow/autofill.py`, `answer_generator.py` | Mapeo de preguntas → hechos del perfil; respuestas solo con datos confirmados; aprobación humana. |
@@ -54,7 +54,7 @@ python -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt -r requirements-dev.txt
 .venv\Scripts\python.exe -m playwright install chromium   # solo para las pruebas del ejecutor
 .venv\Scripts\python.exe -m jobflow                        # abre http://127.0.0.1:8000
-.venv\Scripts\python.exe -m pytest -q                      # 50 pruebas
+.venv\Scripts\python.exe -m pytest -q                      # 54 pruebas
 ```
 
 - Para probar sin tocar datos reales: `DATABASE_URL=sqlite:///<tmp>/v.db` y `JOBFLOW_DATA_DIR=<tmp>`.

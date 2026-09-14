@@ -95,6 +95,13 @@ def _user(db: Session) -> models.Usuario:
     return current_user(db)
 
 
+def _goal_level(db: Session, profile_id: int) -> Optional[str]:
+    """Career level chosen in the profile goals, used to judge vacancy levels."""
+    from .career import Preferences
+    p = db.get(Preferences, profile_id)
+    return ((p.data or {}).get("goals") or {}).get("seniority") if p else None
+
+
 def _form(db: Session, form_id: int) -> models.FormularioResuelto:
     d = db.get(models.FormularioResuelto, form_id)
     if not d or not d.profile_id or not get_profile_row(db, d.profile_id):
@@ -311,7 +318,7 @@ def api_jobs_search(req: GenerateRequest, db: Session = Depends(get_db)):
     if not active:
         raise HTTPException(409, "Selecciona un puesto objetivo guardado.")
     results = search_all(profile, platforms, location=active.ubicacion if active else profile.ubicacion,
-                         query=active.titulo if active else None)
+                         query=active.titulo if active else None, level=active.seniority)
     return {
         "candidato": profile.nombre,
         "profile_id": row.id,
@@ -423,7 +430,7 @@ def api_postular(req: PostulacionRequest, db: Session = Depends(get_db)):
         raise HTTPException(422, "Indica empresa y puesto para guardar la oportunidad.")
     job = req.model_dump()
     try:
-        post, duplicate = register(db, user.id, row.id, job, evaluate(profile, job))
+        post, duplicate = register(db, user.id, row.id, job, evaluate(profile, job, _goal_level(db, row.id)))
     except ValueError as exc:
         raise HTTPException(422, str(exc))
     return {"postulacion_id": post.id, "vacante_id": post.vacante_id,
@@ -650,7 +657,7 @@ def import_job(req: JobImportRequest, db: Session = Depends(get_db)):
     job["titulo"], job["empresa"] = job["titulo"].strip(), job["empresa"].strip()
     if not job["titulo"] or not job["empresa"]:
         raise HTTPException(422, "Empresa y puesto son obligatorios.")
-    analysis = evaluate(profile, job)
+    analysis = evaluate(profile, job, _goal_level(db, row.id))
     try:
         app, duplicate = register(db, _user(db).id, row.id, job, analysis)
     except ValueError as exc:

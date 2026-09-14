@@ -112,8 +112,8 @@ class Goals(BaseModel):
     location:str=Field(min_length=2,max_length=200)
     modality:str=Field(min_length=2,max_length=100)
     salary:str=Field(default='',max_length=100)
-    seniority:Literal['asistente','analista_junior','analista']='analista_junior'
-    restrictions:str=Field(default='',max_length=2000)
+    seniority:Literal['practicante_preprofesional','practicante_profesional','asistente','analista_junior','analista','analista_senior','coordinador','jefe','gerente']='analista_junior'
+    restrictions:str=Field(default='',max_length=2000)  # «; »-separated; empty means no restrictions
     @field_validator('titles')
     @classmethod
     def titles_valid(cls,values):

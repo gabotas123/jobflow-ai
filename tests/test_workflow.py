@@ -49,6 +49,51 @@ def test_scoring_unknowns_and_exclusions():
     assert evaluate(p,{'titulo':'Astronauta'})['compatibilidad']==0
 
 
+def test_title_levels_use_the_main_role_word():
+    from jobflow.workflow import title_levels
+    assert title_levels('Practicante Pre-profesional de Finanzas') == {0}
+    assert title_levels('Practicante profesional contable') == {1}
+    assert title_levels('Practicante de cobranzas') == {0, 1}
+    assert title_levels('Asistente de Gerencia') == {2}
+    assert title_levels('Analista Junior de Costos') == {3}
+    assert title_levels('Analista Senior de Tesorería') == {5}
+    assert title_levels('Jefe de Cobranzas') == {7}
+    assert title_levels('Gerente de Finanzas') == {8}
+    assert title_levels('Contador') is None
+
+
+def test_evaluation_follows_the_chosen_level():
+    p = build_gabriel()
+    intern = {'titulo': 'Practicante de finanzas'}
+    assert evaluate(p, intern)['requisito_excluyente'], 'default level (analista junior) keeps excluding internships'
+    ok = evaluate(p, intern, 'practicante_profesional')
+    assert not ok['requisito_excluyente'] and next(c for c in ok['componentes'] if c['criterio'] == 'Seniority')['puntos'] == 10
+    blocked = evaluate(p, {'titulo': 'Jefe de Finanzas'}, 'practicante_preprofesional')
+    assert blocked['requisito_excluyente'] and 'Practicante preprofesional' in blocked['motivos_exclusion'][0]
+    boss = {'titulo': 'Jefe de Finanzas', 'anos_obligatorios': 4}
+    assert evaluate(p, boss)['requisito_excluyente']
+    assert not evaluate(p, boss, 'jefe')['requisito_excluyente'], 'three or more years only excludes entry levels'
+    assert not evaluate(p, {'titulo': 'Coordinador de Finanzas'}, 'jefe')['requisito_excluyente']
+
+
+def test_goals_accept_new_levels_and_optional_restrictions(client):
+    # Own profile: the shared first profile must keep the default level for other tests.
+    upload = client.post('/api/cv/upload', files={'file': ('niveles.txt', 'LAURA RIOS\nEducación\nBachiller en Economía\nHabilidades\nExcel', 'text/plain')})
+    pid = upload.json()['id']
+    h = client.get(f'/api/career/profiles/{pid}/setup').json()['profile_hash']
+    assert client.post(f'/api/career/profiles/{pid}/confirm', json={'profile_hash': h, 'accepted': True}).status_code == 200
+    base = {'titles': ['Practicante de finanzas'], 'location': 'Lima', 'modality': 'Híbrido'}
+    for level in ('practicante_preprofesional', 'practicante_profesional', 'analista_senior', 'coordinador', 'jefe', 'gerente'):
+        r = client.put(f'/api/career/profiles/{pid}/goals', json={**base, 'seniority': level, 'restrictions': 'Sin turnos nocturnos; Máximo 1 hora de traslado'})
+        assert r.status_code == 200, r.text
+    assert client.put(f'/api/career/profiles/{pid}/goals', json={**base, 'seniority': 'becario'}).status_code == 422
+    r = client.put(f'/api/career/profiles/{pid}/goals', json={**base, 'seniority': 'practicante_profesional'})
+    assert r.status_code == 200 and r.json()['restrictions'] == ''
+    job = client.post('/api/jobs/import', json={'profile_id': pid, 'titulo': 'Practicante de finanzas', 'empresa': 'Empresa Niveles',
+                                                'url': 'https://example.com/niveles/1'}).json()
+    assert not job['analisis']['requisito_excluyente']
+
+
 def test_application_lifecycle_and_duplicate(client):
     profile=client.get('/api/profiles').json()[0]['id']
     data=dict(profile_id=profile,titulo='Analista de Cobranzas',empresa='Empresa Test',

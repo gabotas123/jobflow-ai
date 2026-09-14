@@ -5,6 +5,17 @@ Todos los cambios del proyecto, con fecha y commit. El historial vivo está en:
 
 ---
 
+## 09-13 · Niveles de prácticas y roles superiores; restricciones con opciones
+- **Nivel** en «¿A qué puestos quieres postular?»: Practicante preprofesional,
+  Practicante profesional, Asistente, Analista junior, Analista, Analista senior o
+  especialista, Coordinador o supervisor, Jefe, Gerente o director.
+- **La evaluación de vacantes usa el nivel elegido** (antes excluía siempre practicante,
+  senior, jefe y gerente). Acepta avisos del mismo nivel o uno adyacente, detectado por
+  la palabra principal del título («Asistente de gerencia» es asistente). La exclusión
+  por pedir 3 o más años solo aplica hasta analista junior.
+- **Restricciones**: casillas con opciones frecuentes más «Otras restricciones».
+  Dejarlo en blanco significa que no hay restricciones.
+
 ## 09-13 · Fechas de experiencia con selector de mes y año
 - **Inicio** y **Fin** de cada experiencia abren un menú con el año (‹ ›) y los 12
   meses. No permite meses futuros, un inicio posterior al fin ni un fin anterior al inicio.

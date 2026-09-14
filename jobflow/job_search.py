@@ -136,7 +136,7 @@ def build_query(profile) -> str:
     return " ".join(words[:5]) or "finanzas"
 
 
-def search(profile, platform: str, query: str, location: str = "") -> Dict:
+def search(profile, platform: str, query: str, location: str = "", level=None) -> Dict:
     from .workflow import evaluate, safe_url
     entry = {
         "plataforma": platform, "nombre": PLATFORMS.get(platform, {}).get("nombre", platform),
@@ -162,7 +162,7 @@ def search(profile, platform: str, query: str, location: str = "") -> Dict:
             from .job_extract import enrich
             enrich(job)
         job["plataforma"] = platform
-        analysis = evaluate(profile, job)
+        analysis = evaluate(profile, job, level)
         if analysis["requisito_excluyente"]:
             excluded += 1
             continue
@@ -176,8 +176,8 @@ def search(profile, platform: str, query: str, location: str = "") -> Dict:
     return entry
 
 
-def search_all(profile, platforms: List[str], location: str = "", query=None) -> List[Dict]:
+def search_all(profile, platforms: List[str], location: str = "", query=None, level=None) -> List[Dict]:
     from concurrent.futures import ThreadPoolExecutor
     query = query or build_query(profile)
     with ThreadPoolExecutor(max_workers=min(4, len(platforms) or 1)) as pool:
-        return list(pool.map(lambda p: search(profile, p, query, location), platforms))
+        return list(pool.map(lambda p: search(profile, p, query, location, level), platforms))
