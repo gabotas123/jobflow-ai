@@ -322,7 +322,13 @@ def test_executor_blocks_captcha_login_and_missing_confirmation(portal_page):
     assert out['reason'] == 'sesion_cerrada'
     silent = portal_page(JOB_PAGE.replace('EXTRA', '').replace('window.sent = 0;', 'window.sent = 0; window.MUTE = true;'))
     out = portals.apply_on_page(silent, 'bumeran', 'https://www.bumeran.com.pe/empleos/analista-1.html', planner())
-    assert out['status'] == 'intento_no_confirmado'
+    # Reloading the job page still offers «Postularme»: nothing was sent, so it can be retried safely.
+    assert out['status'] == 'bloqueada' and out['reason'] == 'formulario_incompleto', out
+    unknown = portal_page(JOB_PAGE.replace('EXTRA', '').replace(
+        'window.sent = 0;', 'window.sent = 0; window.MUTE = true; if (localStorage.clicked) document.getElementById("go").remove();'
+    ).replace("window.salary = sal.value;", "window.salary = sal.value; localStorage.clicked = 1;"))
+    out = portals.apply_on_page(unknown, 'bumeran', 'https://www.bumeran.com.pe/empleos/analista-1.html', planner())
+    assert out['status'] == 'intento_no_confirmado', out  # no confirmation and no button: truly uncertain
     closed = portal_page('<h1>Aviso finalizado</h1>')
     assert portals.apply_on_page(closed, 'bumeran', 'https://www.bumeran.com.pe/empleos/analista-1.html', planner())['reason'] == 'sin_boton'
     blocked = portal_page('<h1>Sorry, you have been blocked</h1><p>You are unable to access bumeran.com.pe</p><button>Postularme</button>')
@@ -685,3 +691,36 @@ def test_grouped_questions_answer_once_for_every_application(client, monkeypatch
     runs = [client.get(f'/api/portals/applications/{aid}/runs').json()['runs'][0] for aid in apps]
     assert all(run['status'] == 'en_cola' and run['mode'] == 'completar_preguntas' for run in runs)
     assert not [g for g in client.get(f'/api/portals/{pid}/questions').json()['questions'] if 'Surco' in g['label']]
+
+
+CT_KILLER = """<!doctype html><html><head><meta charset="utf-8"></head><body><h2>Preguntas de selección</h2>
+<form id="kq" method="post" action="/candidate/kq">
+<div><label for="q0">Mencione su carrera y grado académico</label><span>(máximo 500 caracteres)</span>
+ <textarea id="q0" name="KillerQuestions[0].OpenQuestion" maxlength="500" data-rule-required="true"></textarea></div>
+<div><label for="q1">Indica tu expectativa salarial y disponibilidad de incorporación</label><span>(máximo 500 caracteres)</span>
+ <textarea id="q1" name="KillerQuestions[1].OpenQuestion" maxlength="500" data-rule-required="true"></textarea></div>
+<div><label for="q2">¿Cuenta con experiencia con algún ERP contable?</label><span>(máximo 500 caracteres)</span>
+ <textarea id="q2" name="KillerQuestions[2].OpenQuestion" maxlength="500" data-rule-required="true"></textarea></div>
+<input type="submit" id="btnKiller" value="Enviar mi CV"></form>
+<script>window.sent = 0; kq.onsubmit = e => { e.preventDefault(); if ([...kq.querySelectorAll('textarea')].some(t => !t.value)) return; window.sent++; };</script>
+</body></html>"""
+
+
+def test_computrabajo_killer_questions_marked_by_jquery_validation(portal_page):
+    page = portal_page(CT_KILLER, path='/candidate/kq', host='candidato.pe.computrabajo.com')
+    out = portals.apply_on_page(page, 'computrabajo', 'https://candidato.pe.computrabajo.com/candidate/kq',
+                                lambda fields: portals.plan_fields(fields, cv_profile(), 'Analista', {}),
+                                trace={'clicks': ['Postularme'], 'filled': []})
+    assert out['status'] == 'bloqueada' and out['reason'] == 'preguntas', out
+    assert [q['label'] for q in out['questions']] == ['¿Cuenta con experiencia con algún ERP contable?']
+    assert {s['label'] for s in out['planned']} == {'Mencione su carrera y grado académico',
+                                                     'Indica tu expectativa salarial y disponibilidad de incorporación'}
+    assert page.evaluate('window.sent') == 0  # never submits with a required question unanswered
+
+
+def test_long_answers_are_cut_to_the_field_limit():
+    p = cv_profile()
+    p.summary = 'Experiencia en cobranzas B2B. ' * 40
+    field = {'key': '1', 'label': 'Resumen profesional', 'type': 'textarea', 'required': True, 'filled': False, 'maxlength': 120}
+    plan = portals.plan_fields([field], p, 'Analista', {'resumen profesional': p.summary})
+    assert plan[0]['action'] == 'fill' and len(plan[0]['value']) <= 120 and plan[0]['value'].endswith('B2B.')

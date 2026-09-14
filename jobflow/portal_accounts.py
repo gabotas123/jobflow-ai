@@ -477,6 +477,10 @@ def plan_fields(fields, profile, vacancy_title, approved: dict, cv_path: str | N
                 plan.append({**step, "action": "pending" if required else "skip", "reason": "Falta un valor numérico confirmado."})
                 continue
             value = re.sub(r"[,.](?=\d{3}\b)", "", digits[0])
+        limit = int(f.get("maxlength") or 0)
+        if limit and len(value) > limit:  # the portal rejects longer answers
+            cut = value[:limit]
+            value = cut[:max(cut.rfind(". ") + 1, cut.rfind(" "))].rstrip(" ,;") if " " in cut else cut
         plan.append({**step, "action": "fill", "value": value, "source": source})
     return plan
 
@@ -556,7 +560,9 @@ FIELDS_JS = r"""
     el.setAttribute('data-jobflow-field', String(i));
     // Many portals only mark required questions with a visual asterisk; the label is kept without it.
     const rawLabel = labelOf(el);
-    const required = el.required || el.getAttribute('aria-required') === 'true' || /\*\s*$/.test(rawLabel);
+    // Computrabajo validates with jQuery (data-rule-required / data-val-required*), not the HTML attribute.
+    const required = el.required || el.getAttribute('aria-required') === 'true' || /\*\s*$/.test(rawLabel) ||
+      el.getAttribute('data-rule-required') === 'true' || el.hasAttribute('data-val-required') || el.hasAttribute('data-val-requiredif');
     const cleanLabel = rawLabel.replace(/\s*\*+\s*$/, '');
     if (type === 'radio') {
       const name = el.name || ('radio' + i);
@@ -574,7 +580,8 @@ FIELDS_JS = r"""
       groups[name].filled = groups[name].filled || el.checked;
       return;
     }
-    out.push({ key: String(i), label: cleanLabel.slice(0, 300), type, required,
+    out.push({ key: String(i), label: cleanLabel.replace(/\s*\(m[aá]ximo \d+ caracteres\)\s*$/i, '').slice(0, 300), type, required,
+      maxlength: el.maxLength > 0 ? el.maxLength : 0,
       options: type === 'select' ? [...el.options].map(o => o.text.trim()).filter(Boolean) : [],
       filled: type === 'checkbox' ? el.checked : type === 'file' ? el.files.length > 0 :
               type === 'select' ? (el.selectedIndex > 0 || (el.value && !/selecc|elige/i.test(el.options[el.selectedIndex]?.text || ''))) : !!el.value.trim() });
@@ -704,6 +711,45 @@ def _find_action(page, patterns, generic_outside_dialog, wait_s: float = 0, sear
         page.wait_for_timeout(1000)
 
 
+def _wait_until_done(page, action, patterns, navigated, clicked_on, timeout_s: float = 20):
+    """Espera a que el portal procese el clic: se cierra la ventana, aparece el siguiente paso,
+    cambia la página o llega la confirmación. Cerrar antes podía cortar el envío de respuestas."""
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if page.url != clicked_on or _confirmation(page):
+            break
+        again = page.evaluate(ACTION_JS, [patterns, DONE_BUTTON, navigated, False])
+        if action.get("dialog") and not again.get("dialog"):
+            break
+        if again.get("found") and again.get("label") != action["label"]:
+            break
+        if not action.get("dialog") and not again.get("found"):
+            break
+        page.wait_for_timeout(700)
+    try:
+        page.wait_for_load_state("networkidle", timeout=5000)
+    except Exception:
+        pass
+
+
+def job_page_state(page, job_url) -> tuple[str, str]:
+    """Sin mensaje de confirmación, el aviso dice la verdad. Devuelve ("postulada", evidencia) si figura
+    «Postulado» (Bumeran, Computrabajo, LinkedIn), ("sin_enviar", "") si el botón de postular sigue
+    disponible, o ("incierto", "")."""
+    try:
+        page.goto(job_url, wait_until="domcontentloaded", timeout=45000)
+        _settle(page, 4000)
+        evidence = _confirmation(page)
+        action = page.evaluate(ACTION_JS, [[APPLY_TEXT], DONE_BUTTON, False, True])
+    except Exception:
+        return "incierto", ""
+    if evidence or action.get("done"):
+        return "postulada", evidence or "El aviso figura como «Postulado» en el portal."
+    if action.get("found") and not QUESTIONS_BUTTON.match(action.get("label", "")):
+        return "sin_enviar", ""
+    return "incierto", ""
+
+
 def _form_errors(page) -> str:
     return " · ".join(page.evaluate(
         "() => [...document.querySelectorAll('[role=alert], .error, .invalid-feedback, .field-error, [class*=error]')]"
@@ -731,6 +777,18 @@ def apply_on_page(page, portal: str, url: str, planner, max_steps: int = 8, trac
                       evidence=trace["evidence"], previa=not trace["clicks"], questions=pending, planned=planned or [],
                       message=message or ("Postulación registrada en el portal. Quedan preguntas sin un dato confirmado: "
                                           "respóndelas para completar tu postulación." if pending else ""))
+
+    def settle_uncertain(message):
+        """Cuando el portal no mostró confirmación, se comprueba en el propio aviso."""
+        state, evidence = job_page_state(page, job_page)
+        if state == "postulada":
+            trace["evidence"] = evidence
+            return applied(message="Confirmado en el aviso del portal.")
+        if state == "sin_enviar":
+            return result("bloqueada", "formulario_incompleto",
+                          message="El portal no aceptó el formulario y el aviso sigue sin postular: no se envió nada. "
+                                  "Revisa las preguntas pendientes y reintenta.")
+        return result("intento_no_confirmado", "sin_confirmacion", message=message)
 
     page.goto(url, wait_until="domcontentloaded", timeout=45000)
     _settle(page, 3000)
@@ -768,9 +826,8 @@ def apply_on_page(page, portal: str, url: str, planner, max_steps: int = 8, trac
             # Never press a send/apply button twice: the first press may already have applied.
             if trace.get("evidence"):
                 return applied(message="Postulación registrada. El portal no aceptó las respuestas: " + _form_errors(page))
-            return result("intento_no_confirmado", "sin_confirmacion",
-                          message="El portal volvió a mostrar el botón sin confirmar la postulación. Revisa el portal antes de reintentar. "
-                                  + _form_errors(page))
+            return settle_uncertain("El portal volvió a mostrar el botón sin confirmar la postulación. Revisa el portal antes de reintentar. "
+                                    + _form_errors(page))
         fields = page.evaluate(FIELDS_JS, "[data-jobflow-scope='1']" if action.get("scoped") else "body")
         if action.get("disabled"):
             # A disabled send button means every empty question must be answered first.
@@ -808,14 +865,14 @@ def apply_on_page(page, portal: str, url: str, planner, max_steps: int = 8, trac
             # A sticky cookie banner may cover it; the element's own click avoids accepting cookies.
             button.evaluate("el => el.click()")
         trace["clicks"].append(action["label"])
-        _settle(page)
+        _settle(page, 1500)
+        _wait_until_done(page, action, patterns, navigated, clicked_on)
     if _confirmation(page) or trace.get("evidence"):
         trace["evidence"] = _confirmation(page) or trace["evidence"]
         return applied()
     if not trace["clicks"]:
         return result("bloqueada", "sin_boton", message=NO_BUTTON.get(portal, "No se encontró el botón para postular. La vacante puede estar cerrada."))
-    return result("intento_no_confirmado", "sin_confirmacion",
-                  message="No apareció una confirmación del portal. Revisa tus postulaciones en el portal antes de reintentar.")
+    return settle_uncertain("No apareció una confirmación del portal. Revisa tus postulaciones en el portal antes de reintentar.")
 
 
 # --------------------------------------------------------------------------- #
@@ -915,7 +972,7 @@ def run_in_browser(pid: int, fn):
             real.close()
 
 
-def process_run(run_id: int):
+def process_run(run_id: int, expected_status: str = "en_cola"):
     from .career import CVVersion, profile_hash
     from .cv_generator import build_docx
     from .models import Postulacion, Vacante
@@ -923,7 +980,7 @@ def process_run(run_id: int):
     db = SessionLocal()
     try:
         run = db.get(AutoApplyRun, run_id)
-        if not run or run.status != "en_cola":
+        if not run or run.status != expected_status:  # a run already claimed elsewhere is never repeated
             return
         app = db.get(Postulacion, run.application_id)
         vacancy = db.get(Vacante, app.vacante_id)
@@ -1411,7 +1468,8 @@ def pending_forms(db, pid):
 def grouped_questions(pid: int, db: Session = Depends(get_db)):
     from .career import profile_row
     from .models import Vacante
-    profile_row(db, pid)
+    from .seed import profile_from_row
+    profile = profile_from_row(profile_row(db, pid))
     bank, groups = answer_bank(db, pid), {}
     for app, form in pending_forms(db, pid):
         vacancy = db.get(Vacante, app.vacante_id)
@@ -1419,9 +1477,15 @@ def grouped_questions(pid: int, db: Session = Depends(get_db)):
             if str(answer.get("answer", "")).strip() and not answer.get("necesita_input"):
                 continue  # proposed by JobFlow from your CV
             key = norm(answer.get("label", ""))
-            group = groups.setdefault(key, {"key": key, "label": answer.get("label", ""), "options": answer.get("opciones") or [],
-                                            "reason": answer.get("nota", ""), "sensitive": bool(answer.get("bloqueada")),
-                                            "suggested": bank.get(key, str(answer.get("answer", ""))), "applications": []})
+            if key not in groups:
+                # Suggest what you already approved elsewhere, or what your confirmed CV can answer now.
+                deduced = answer_question(answer.get("label", ""), "select" if answer.get("opciones") else "textarea",
+                                          answer.get("opciones") or [], profile) or {}
+                groups[key] = {"key": key, "label": answer.get("label", ""), "options": answer.get("opciones") or [],
+                               "reason": answer.get("nota", ""), "sensitive": bool(answer.get("bloqueada")),
+                               "suggested": bank.get(key) or deduced.get("value") or str(answer.get("answer", "")),
+                               "applications": []}
+            group = groups[key]
             group["applications"].append({"id": app.id, "empresa": vacancy.empresa if vacancy else "",
                                           "titulo": vacancy.titulo if vacancy else "", "estado": app.estado})
     return {"questions": sorted(groups.values(), key=lambda g: (-len(g["applications"]), g["label"]))}

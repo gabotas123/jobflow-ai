@@ -34,7 +34,7 @@ GENERIC_YEARS = ("area", "areas", "puesto", "similar", "cargo", "rubro", "funcio
 YEARS_Q = re.compile(r"\b(cuant[oa]s? (anos|meses|tiempo)|anos de experiencia|tiempo de experiencia|anos trabajando)\b")
 YESNO_Q = re.compile(r"^(tienes|tiene|cuentas con|cuenta con|posees|posee|has (trabajado|realizado|tenido|gestionado|manejado|usado|utilizado)|"
                      r"manejas|maneja|conoces|dominas|sabes|tienes conocimiento|cuentas con experiencia|has participado)\b")
-LEVEL_Q = re.compile(r"\bnivel de ([a-z0-9 .+#]+)")
+LEVEL_Q = re.compile(r"\bnivel (?:de|en|manejas|dominas|tienes(?: de| en)?|conoces|usas)\s+(?:el |la |los |las )?([a-z0-9 .+#]+)")
 
 
 def _words(text: str) -> list[str]:
@@ -243,7 +243,8 @@ def answer_question(label: str, field_type: str, options: list[str], profile, to
             return {"reason": "No se identificó el tema de la pregunta."}
         found = _evidence(profile, stems)
         matched = [s for s in dict.fromkeys(stems) if found[s]]
-        if not matched or (strict and len(matched) < len(set(stems))):
+        # A free-text «Sí» needs evidence for at least half of the topics; a choice needs all of them.
+        if not matched or len(matched) < (len(set(stems)) if strict else len(set(stems)) / 2):
             return {"reason": "Tu CV no muestra evidencia de eso. Respóndela tú si corresponde."}
         if field_type in ("select", "radio"):
             return {"value": "Sí", "source": "Evidencia en tu CV confirmado"}

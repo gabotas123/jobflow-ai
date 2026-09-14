@@ -5,6 +5,27 @@ Todos los cambios del proyecto, con fecha y commit. El historial vivo está en:
 
 ---
 
+## 09-14 · Postulación masiva y pruebas reales en Bumeran y Computrabajo
+- **Postulación masiva**: en Oportunidades marcas vacantes (o todas sobre una compatibilidad
+  mínima) y «Postular a N vacantes». JobFlow lee cada aviso, descarta las incompatibles y las
+  pone en cola. En Postulaciones: avance en vivo, enlace a cada aviso y «Detener cola».
+- **Preguntas por responder**: las preguntas que ninguna postulación pudo contestar se agrupan;
+  respondes una vez y se completan todas (con sugerencias de tu CV o respuestas previas).
+- **Verificado con postulaciones reales autorizadas**: Bumeran respondió las preguntas de People
+  Analytics, Grupo Palmas y Koplast y registró una postulación nueva; Computrabajo detecta sus 6
+  preguntas obligatorias y se detiene sin enviar cuando faltan datos tuyos.
+- Computrabajo: una capa fija se tomaba por ventana emergente; los obligatorios se marcan con
+  `data-rule-required`; respuestas recortadas al límite de caracteres.
+- Bumeran: el recuadro es «Tienes preguntas sin responder»; «Responder» se reconstruye al escribir
+  y ahora se espera a que el envío termine antes de cerrar el navegador.
+- Sin mensaje de confirmación, JobFlow revisa el aviso: «Postulado» confirma; «Postularme»
+  disponible significa que no se envió (se puede reintentar sin riesgo).
+- Respuestas: «disponibilidad para trabajar presencial» ya no se contesta con la fecha de
+  incorporación; «Sí» en texto requiere evidencia de al menos la mitad de los temas; años por
+  tema exigen todos; «¿A qué nivel manejas…?»; carrera y grado sin cursos.
+- Abrir JobFlow cierra las copias anteriores y un candado deja la cola a un solo proceso
+  (varias ventanas ejecutaban la cola con código distinto). «Ver captura» → enlace al aviso.
+
 ## 09-13 · Postulación que sí rellena las preguntas + LinkedIn
 - **Bumeran**: registra la postulación al pulsar «Postularme» y luego abre «Responde las
   preguntas». JobFlow no reconocía esa ventana (sin marca de diálogo), leía el contador
