@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .db import SessionLocal, get_db
+from .cv_answers import answer_question
 from .models import Base, FormularioResuelto
 from .workflow import ApplicationDetail, AuditEvent, norm
 
@@ -51,24 +52,51 @@ PORTALS = {
         "probe_url": "https://candidato.pe.computrabajo.com/candidate/",
         "login_markers": ("account/login", "/acceso"),
     },
+    "linkedin": {
+        "nombre": "LinkedIn", "domain": "linkedin.com",
+        "login_url": "https://www.linkedin.com/login/es",
+        "probe_url": "https://www.linkedin.com/feed/",
+        "login_markers": ("/login", "/uas/login", "/authwall", "/checkpoint", "/signup"),
+        # LinkedIn's terms forbid automation: connecting requires accepting the account risk.
+        "riesgo": ("Las condiciones de uso de LinkedIn prohíben automatizar postulaciones. LinkedIn puede pedir "
+                   "verificaciones, limitar o suspender tu cuenta. JobFlow solo usa «Solicitud sencilla», con un "
+                   "límite diario bajo y pausas, pero el riesgo existe y es tuyo."),
+    },
 }
 UNSUPPORTED = {
-    "linkedin": "LinkedIn prohíbe la automatización y puede suspender la cuenta: JobFlow prepara tus respuestas y tú postulas.",
     "indeed": "Indeed bloquea el acceso automatizado: abre el aviso y postula personalmente.",
 }
 BLOCKED_STATES = ("incompatible", "pendiente_revision_duplicado", "vencida", "rechazada")
 ACTIVE_RUNS = ("en_cola", "ejecutando")
 LOGIN_TIMEOUT = 600
 DAILY_LIMIT = int(os.getenv("JOBFLOW_APPLY_DAILY_LIMIT", "20"))
+PORTAL_LIMITS = {"linkedin": int(os.getenv("JOBFLOW_LINKEDIN_DAILY_LIMIT", "8"))}
 
-APPLY_TEXT = r"^(postularme|postular(me|se)?( ahora| a este empleo| a esta oferta| al empleo)?|aplicar( ahora)?|enviar (mi )?postulaci[oó]n|confirmar postulaci[oó]n|finalizar postulaci[oó]n|enviar (mi )?cv)$"
+
+def apply_url(portal: str, url: str) -> str:
+    """URL del aviso tal como la ve el candidato con sesión iniciada."""
+    if portal == "linkedin":
+        m = re.search(r"/jobs/view/(?:[^/?#]*-)?(\d{6,})", url or "") or re.search(r"currentJobId=(\d{6,})", url or "")
+        if m:
+            return f"https://www.linkedin.com/jobs/view/{m.group(1)}/"
+    return url
+
+APPLY_TEXT = (r"^(postularme|postular(me|se)?( ahora| a este empleo| a esta oferta| al empleo)?|aplicar( ahora)?|"
+              r"enviar (mi )?postulaci[oó]n|confirmar postulaci[oó]n|finalizar postulaci[oó]n|enviar (mi )?cv|"
+              r"solicitud sencilla|easy apply|enviar solicitud|submit application|preguntas sin responder.*)$")
 # Generic buttons only count once the application flow has started (never on the job page).
-NEXT_TEXT = r"^(enviar|confirmar|finalizar|continuar|siguiente|guardar y continuar)$"
-DONE_BUTTON = r"^(postulado|ya postulaste|ya te postulaste|postulaci[oó]n enviada)$"
+NEXT_TEXT = (r"^(enviar|confirmar|finalizar|continuar|siguiente|guardar y continuar|responder|enviar respuestas|"
+             r"guardar respuestas|revisar|revisar (tu )?solicitud|next|review|continue|continuar al siguiente paso)$")
+# Steps that may legitimately be pressed more than once (multi-page forms).
+REPEATABLE = r"^(siguiente|continuar|guardar y continuar|next|continue|continuar al siguiente paso)$"
+DONE_BUTTON = r"^(postulado|ya postulaste|ya te postulaste|postulaci[oó]n enviada|solicitud enviada|solicitado|applied)$"
 CONFIRM_TEXT = re.compile(
     r"(postulaci[oó]n (fue |ha sido )?(enviada|exitosa|realizada|registrada|completada)|te (has )?postulado|"
     r"ya (te )?postulaste|ya est[aá]s postulad|postulaste con [eé]xito|hemos recibido tu (postulaci[oó]n|cv|curr[ií]culum)|"
-    r"tu (cv|curr[ií]culum) (fue|ha sido) enviado|(te )?postulaste (correctamente|exitosamente))", re.I)
+    r"tu (cv|curr[ií]culum) (fue|ha sido) enviado|(te )?postulaste (correctamente|exitosamente)|"
+    r"postulad[oa] el \d{1,2}/\d{1,2}/\d{2,4}|se envi[oó] tu solicitud|solicitud enviada|"
+    r"your application was sent|application (was )?submitted)", re.I)
+QUESTIONS_BUTTON = re.compile(r"^preguntas sin responder", re.I)
 CAPTCHA_TEXT = re.compile(r"(no soy un robot|verifica que eres (un )?humano|captcha|confirma que eres humano)", re.I)
 TEST_TEXT = re.compile(r"(prueba|test|evaluaci[oó]n) (psicom[eé]trica|t[eé]cnica|de conocimientos|de personalidad)|video ?entrevista|graba(r)? (un )?video", re.I)
 
@@ -353,6 +381,9 @@ def login_worker(pid: int, portal: str) -> None:
 #  Plan de llenado (sin navegador: testeable)
 # --------------------------------------------------------------------------- #
 YES = ("si", "sí", "yes")
+# Profile facts that answer a question directly (the rest need CV evidence or your answer).
+DIRECT_FACTS = {"movilidad", "disponibilidad", "salario_pretendido", "telefono", "email", "ubicacion", "linkedin",
+                "idioma_ingles", "modalidad", "formacion"}
 
 
 def choose_option(options, value):
@@ -396,21 +427,31 @@ def plan_fields(fields, profile, vacancy_title, approved: dict, cv_path: str | N
             continue
         value = approved.get(norm(label), "")
         source = "Respuesta aprobada por ti"
-        if not value and a["answer"] and not a["necesita_input"]:
+        reason = "No hay un dato confirmado para esta pregunta."
+        if not value and m["canonical"] in DIRECT_FACTS and a["answer"] and not a["necesita_input"]:
             value, source = a["answer"], a.get("fuente") or "Perfil confirmado"
         if not value:
-            plan.append({**step, "action": "pending" if required else "skip",
-                         "reason": "No hay un dato confirmado para esta pregunta."})
+            # Questions about a specific topic are answered with CV evidence, never with generic text.
+            deduced = answer_question(label, kind, f.get("options", []), profile)
+            if deduced and deduced.get("value"):
+                value, source = deduced["value"], deduced["source"]
+            elif deduced:
+                reason = deduced["reason"]
+            elif a["answer"] and not a["necesita_input"]:
+                value, source = a["answer"], a.get("fuente") or "Perfil confirmado"
+        if not value:
+            plan.append({**step, "action": "pending" if required else "skip", "reason": reason,
+                         "options": f.get("options", [])})
             continue
         if kind in ("select", "radio"):
-            option = choose_option(f.get("options", []), value)
+            option = value if value in f.get("options", []) else choose_option(f.get("options", []), value)
             if option is None:
                 plan.append({**step, "action": "pending" if required else "skip", "options": f.get("options", []),
                              "reason": "Ninguna opción coincide con tu dato confirmado."})
                 continue
             plan.append({**step, "action": "select", "value": option, "source": source})
             continue
-        if kind == "number" or m["canonical"] == "salario_pretendido":
+        if kind == "number" or (m["canonical"] == "salario_pretendido" and kind not in ("textarea",)):
             digits = re.findall(r"\d[\d,.]*", value)
             if not digits:
                 plan.append({**step, "action": "pending" if required else "skip", "reason": "Falta un valor numérico confirmado."})
@@ -418,6 +459,30 @@ def plan_fields(fields, profile, vacancy_title, approved: dict, cv_path: str | N
             value = re.sub(r"[,.](?=\d{3}\b)", "", digits[0])
         plan.append({**step, "action": "fill", "value": value, "source": source})
     return plan
+
+
+REUSE_EXCLUDED = re.compile(r"por que|motivo|interes|nosotros|esta (empresa|compania|organizacion|posicion|vacante|oportunidad)|carta")
+
+
+def answer_bank(db, profile_id, exclude_application=None) -> dict:
+    """Respuestas que el candidato aprobó en otras candidaturas, para la misma pregunta.
+
+    Se excluyen las que dependen de la empresa o del puesto (motivación, «esta empresa»).
+    """
+    from .models import Postulacion
+    apps = [a.id for a in db.query(Postulacion).filter_by(profile_id=profile_id) if a.id != exclude_application]
+    out = {}
+    if not apps:
+        return out
+    forms = (db.query(FormularioResuelto).filter(FormularioResuelto.postulacion_id.in_(apps),
+                                                 FormularioResuelto.aprobado_por_usuario.is_(True))
+             .order_by(FormularioResuelto.id.asc()).all())
+    for form in forms:
+        for a in form.respuestas_generadas or []:
+            label = norm(a.get("label", ""))
+            if label and str(a.get("answer", "")).strip() and not REUSE_EXCLUDED.search(label):
+                out[label] = str(a["answer"]).strip()
+    return out
 
 
 def approved_answers(db, application_id) -> dict:
@@ -441,16 +506,22 @@ FIELDS_JS = r"""
   const text = el => (el?.innerText || el?.textContent || '').replace(/\s+/g, ' ').trim();
   const scope = document.querySelector(scopeSelector) || document;
   document.querySelectorAll('[data-jobflow-field]').forEach(e => e.removeAttribute('data-jobflow-field'));
+  // Counters ("0 / 2000"), placeholders and hints are not the question.
+  const noise = t => !t || /^\d+\s*\/\s*\d+$/.test(t) || /^(ingresa|escribe|selecciona|opcional|obligatorio|\*$)/i.test(t) || t.length > 400;
   const labelOf = el => {
-    if (el.labels && el.labels.length) return [...el.labels].map(text).join(' ');
-    if (el.getAttribute('aria-label')) return el.getAttribute('aria-label');
+    if (el.labels && el.labels.length && !noise(text(el.labels[0]))) return [...el.labels].map(text).join(' ');
+    if (el.getAttribute('aria-label') && !noise(el.getAttribute('aria-label'))) return el.getAttribute('aria-label');
     const by = el.getAttribute('aria-labelledby');
     if (by) return by.split(/\s+/).map(id => text(document.getElementById(id))).join(' ');
     let node = el;
-    for (let i = 0; i < 4 && node; i++) {
+    for (let i = 0; i < 5 && node; i++) {
       node = node.parentElement;
-      const cand = node && node.querySelector('legend, label, h3, h4, p, span');
-      if (cand && text(cand) && !cand.contains(el)) return text(cand);
+      if (!node) break;
+      // The closest text written before the field inside this container.
+      const before = [...node.querySelectorAll('legend, label, h2, h3, h4, h5, p, span, div')]
+        .filter(c => !c.contains(el) && !c.querySelector('input, textarea, select') &&
+                     (c.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) && !noise(text(c)));
+      if (before.length) return text(before[before.length - 1]);
     }
     return el.placeholder || el.name || '';
   };
@@ -463,14 +534,19 @@ FIELDS_JS = r"""
     const shown = visible(el) || (['radio', 'checkbox', 'file'].includes(type) && el.parentElement && visible(el.parentElement));
     if (!shown) return;
     el.setAttribute('data-jobflow-field', String(i));
-    const required = el.required || el.getAttribute('aria-required') === 'true';
+    // Many portals only mark required questions with a visual asterisk; the label is kept without it.
+    const rawLabel = labelOf(el);
+    const required = el.required || el.getAttribute('aria-required') === 'true' || /\*\s*$/.test(rawLabel);
+    const cleanLabel = rawLabel.replace(/\s*\*+\s*$/, '');
     if (type === 'radio') {
       const name = el.name || ('radio' + i);
       const optionLabel = (el.labels && el.labels.length) ? text(el.labels[0]) : (el.value || '');
       if (!groups[name]) {
         const holder = el.closest('fieldset, [role=radiogroup]') || el.parentElement?.parentElement;
         const legend = holder && holder.querySelector('legend, p, span, label');
-        groups[name] = { key: 'radio:' + name, label: legend ? text(legend) : name, type: 'radio', required, options: [], filled: false };
+        const groupLabel = legend ? text(legend) : name;
+        groups[name] = { key: 'radio:' + name, label: groupLabel.replace(/\s*\*+\s*$/, ''), type: 'radio',
+                         required: required || /\*\s*$/.test(groupLabel), options: [], filled: false };
         out.push(groups[name]);
       }
       groups[name].options.push(optionLabel);
@@ -478,7 +554,7 @@ FIELDS_JS = r"""
       groups[name].filled = groups[name].filled || el.checked;
       return;
     }
-    out.push({ key: String(i), label: labelOf(el).slice(0, 300), type, required,
+    out.push({ key: String(i), label: cleanLabel.slice(0, 300), type, required,
       options: type === 'select' ? [...el.options].map(o => o.text.trim()).filter(Boolean) : [],
       filled: type === 'checkbox' ? el.checked : type === 'file' ? el.files.length > 0 :
               type === 'select' ? (el.selectedIndex > 0 || (el.value && !/selecc|elige/i.test(el.options[el.selectedIndex]?.text || ''))) : !!el.value.trim() });
@@ -493,10 +569,20 @@ ACTION_JS = r"""
   const visible = el => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
     return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
   document.querySelectorAll('[data-jobflow-action],[data-jobflow-scope]').forEach(e => { e.removeAttribute('data-jobflow-action'); e.removeAttribute('data-jobflow-scope'); });
-  const dialog = [...document.querySelectorAll('[role=dialog], dialog[open], .modal.show, [aria-modal=true]')].filter(visible).pop();
+  // Modals: standard markup, or any large fixed layer on top that holds a form (Bumeran does not mark it).
+  let dialog = [...document.querySelectorAll('[role=dialog], dialog[open], .modal.show, [aria-modal=true]')].filter(visible).pop();
+  if (!dialog) {
+    const layers = [...document.body.querySelectorAll('div, section, aside, form')].filter(el => {
+      const s = getComputedStyle(el); if (s.position !== 'fixed') return false;
+      const r = el.getBoundingClientRect();
+      return visible(el) && r.width >= 300 && r.height >= 200 && el.querySelector('textarea, input:not([type=search]), select');
+    });
+    const z = el => parseInt(getComputedStyle(el).zIndex) || 0;
+    dialog = layers.sort((a, b) => z(a) - z(b)).pop();
+  }
   const root = dialog || document;
   const buttons = [...root.querySelectorAll('button, a, input[type=submit], [role=button]')].filter(visible)
-    .filter(b => !b.closest('header, footer, nav') && !b.disabled);
+    .filter(b => !b.closest('header, footer, nav'));
   const label = b => (b.innerText || b.value || b.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim();
   let button = null;
   patterns.forEach((pattern, i) => {
@@ -506,10 +592,11 @@ ACTION_JS = r"""
   if (!button && buttons.some(b => done.test(label(b)))) return { done: true };
   if (!button) return { found: false, dialog: !!dialog };
   button.setAttribute('data-jobflow-action', '1');
-  let scope = button.closest('form, [role=dialog], dialog, [aria-modal=true]');
+  let scope = button.closest('form, [role=dialog], dialog, [aria-modal=true]') || (dialog && dialog.contains(button) ? dialog : null);
   if (!scope) { let n = button; for (let i = 0; i < 6 && n; i++) { n = n.parentElement; if (n && n.querySelector('input, textarea, select')) { scope = n; break; } } }
   if (scope) scope.setAttribute('data-jobflow-scope', '1');
-  return { found: true, label: label(button), scoped: !!scope, dialog: !!dialog };
+  const disabled = !!(button.disabled || button.getAttribute('aria-disabled') === 'true');
+  return { found: true, label: label(button), scoped: !!scope, dialog: !!dialog, disabled };
 }
 """
 
@@ -561,10 +648,35 @@ def _perform(page, step):
             page.get_by_label(step["value"], exact=True).and_(page.locator(f"input[name='{name}']")).first.check()
 
 
-def apply_on_page(page, portal: str, url: str, planner, max_steps: int = 6, trace: dict | None = None) -> dict:
+NO_BUTTON = {
+    "linkedin": "Esta vacante no tiene «Solicitud sencilla»: se postula en la web de la empresa. Ábrela desde el aviso.",
+}
+
+
+def _find_action(page, patterns, generic_outside_dialog, wait_s: float = 0):
+    """Busca el siguiente botón; en la página del aviso espera a que el portal lo cargue."""
+    deadline = time.time() + wait_s
+    while True:
+        action = page.evaluate(ACTION_JS, [patterns, DONE_BUTTON, generic_outside_dialog])
+        if action.get("found") or action.get("done") or time.time() >= deadline:
+            return action
+        page.mouse.wheel(0, 500)
+        page.wait_for_timeout(1000)
+
+
+def _form_errors(page) -> str:
+    return " · ".join(page.evaluate(
+        "() => [...document.querySelectorAll('[role=alert], .error, .invalid-feedback, .field-error, [class*=error]')]"
+        ".map(e => (e.innerText || '').trim()).filter(t => t && t.length < 200).slice(0, 4)"))
+
+
+def apply_on_page(page, portal: str, url: str, planner, max_steps: int = 8, trace: dict | None = None) -> dict:
     """Recorre el formulario del portal. `planner(fields)` devuelve el plan de llenado.
 
     `trace` se comparte con quien llama para saber si hubo clics aunque ocurra un error.
+    Algunos portales (Bumeran) registran la postulación al pulsar «Postularme» y después
+    piden preguntas opcionales: en ese caso queda postulada y las preguntas sin dato se
+    devuelven para que el candidato las responda.
     """
     trace = trace if trace is not None else {}
     trace.setdefault("clicks", [])
@@ -572,6 +684,13 @@ def apply_on_page(page, portal: str, url: str, planner, max_steps: int = 6, trac
 
     def result(status, reason="", **extra):
         return {"status": status, "reason": reason, "trace": trace, "url": page.url, **extra}
+
+    def applied(questions=None, message="", planned=None):
+        pending = questions or []
+        return result("postulada", "preguntas_pendientes" if pending else "confirmacion_portal",
+                      evidence=trace["evidence"], previa=not trace["clicks"], questions=pending, planned=planned or [],
+                      message=message or ("Postulación registrada en el portal. Quedan preguntas sin un dato confirmado: "
+                                          "respóndelas para completar tu postulación." if pending else ""))
 
     page.goto(url, wait_until="domcontentloaded", timeout=45000)
     _settle(page, 3000)
@@ -587,42 +706,63 @@ def apply_on_page(page, portal: str, url: str, planner, max_steps: int = 6, trac
             }.get(blocker, "La postulación incluye una prueba o video: complétala personalmente."))
         evidence = _confirmation(page)
         if evidence:
-            return result("postulada", "confirmacion_portal", evidence=evidence, previa=not trace["clicks"])
+            trace["evidence"] = evidence
         patterns = [APPLY_TEXT, NEXT_TEXT] if trace["clicks"] else [APPLY_TEXT]
         navigated = bool(trace["clicks"]) and page.url != clicked_on
-        action = page.evaluate(ACTION_JS, [patterns, DONE_BUTTON, navigated])
+        waiting = 15 if not trace["clicks"] and not trace.get("evidence") else 3
+        action = _find_action(page, patterns, navigated, waiting)
+        answering = action.get("found") and (action.get("dialog") or QUESTIONS_BUTTON.match(action.get("label", "")))
+        if trace.get("evidence") and not answering:
+            return applied()
         if action.get("done"):
-            return result("postulada", "confirmacion_portal", evidence="El portal indica que la postulación figura como enviada.",
-                          previa=not trace["clicks"])
+            trace["evidence"] = "El portal indica que la postulación figura como enviada."
+            return applied()
         if not action.get("found"):
             break
-        if action["label"] in trace["clicks"] and not re.match(r"^(siguiente|continuar|guardar y continuar)$", action["label"], re.I):
+        if action["label"] in trace["clicks"] and not re.match(REPEATABLE, action["label"], re.I):
             # Never press a send/apply button twice: the first press may already have applied.
-            errors = page.evaluate("() => [...document.querySelectorAll('[role=alert], .error, .invalid-feedback, .field-error')]"
-                                   ".map(e => e.innerText.trim()).filter(Boolean).slice(0, 5)")
+            if trace.get("evidence"):
+                return applied(message="Postulación registrada. El portal no aceptó las respuestas: " + _form_errors(page))
             return result("intento_no_confirmado", "sin_confirmacion",
                           message="El portal volvió a mostrar el botón sin confirmar la postulación. Revisa el portal antes de reintentar. "
-                                  + " · ".join(errors))
+                                  + _form_errors(page))
         fields = page.evaluate(FIELDS_JS, "[data-jobflow-scope='1']" if action.get("scoped") else "body")
+        if action.get("disabled"):
+            # A disabled send button means every empty question must be answered first.
+            fields = [{**f, "required": True} for f in fields]
         plan = planner(fields)
         pending = [s for s in plan if s["action"] == "pending"]
         if pending:
+            # Answers JobFlow could deduce travel with the pending ones, so you only complete what is missing.
+            planned = [s for s in plan if s["action"] in ("fill", "select")]
+            if trace.get("evidence"):
+                return applied(pending, planned=planned)
             return result("bloqueada", "preguntas", message="Hay preguntas sin un dato confirmado. Respóndelas y vuelve a intentarlo.",
-                          questions=pending, fields=fields)
+                          questions=pending, planned=planned, fields=fields)
         for step in plan:
             if step["action"] in ("fill", "select", "file"):
                 _perform(page, step)
                 trace["filled"].append({"label": step["label"], "value": step["value"] if step["action"] != "file" else "CV adjunto",
                                         "source": step.get("source", "")})
+        button = page.locator("[data-jobflow-action='1']").first
+        for _ in range(12):
+            if button.is_enabled() and button.get_attribute("aria-disabled") != "true":
+                break
+            page.wait_for_timeout(500)
+        else:
+            message = "El portal no habilitó el botón «%s». %s" % (action["label"], _form_errors(page))
+            if trace.get("evidence"):
+                return applied(message="Postulación registrada. " + message)
+            return result("bloqueada", "formulario_incompleto", message=message)
         clicked_on = page.url
-        page.locator("[data-jobflow-action='1']").first.click()
+        button.click()
         trace["clicks"].append(action["label"])
         _settle(page)
-    evidence = _confirmation(page)
-    if evidence:
-        return result("postulada", "confirmacion_portal", evidence=evidence, previa=False)
+    if _confirmation(page) or trace.get("evidence"):
+        trace["evidence"] = _confirmation(page) or trace["evidence"]
+        return applied()
     if not trace["clicks"]:
-        return result("bloqueada", "sin_boton", message="No se encontró el botón para postular. La vacante puede estar cerrada.")
+        return result("bloqueada", "sin_boton", message=NO_BUTTON.get(portal, "No se encontró el botón para postular. La vacante puede estar cerrada."))
     return result("intento_no_confirmado", "sin_confirmacion",
                   message="No apareció una confirmación del portal. Revisa tus postulaciones en el portal antes de reintentar.")
 
@@ -724,7 +864,8 @@ def process_run(run_id: int):
             cv_path = str(evidence_dir() / f"cv_{run.id}.docx")
             Path(cv_path).write_bytes(build_docx(version.snapshot["cv"]).getvalue())
         profile = profile_from_row(row)
-        approved = approved_answers(db, app.id)
+        # Answers you approved for this application win over the ones reused from others.
+        approved = {**answer_bank(db, run.profile_id, app.id), **approved_answers(db, app.id)}
         planner = lambda fields: plan_fields(fields, profile, vacancy.titulo, approved, cv_path)
         shot = evidence_dir() / f"run_{run.id}.png"
 
@@ -732,7 +873,7 @@ def process_run(run_id: int):
 
         def work(page):
             try:
-                outcome = apply_on_page(page, run.portal, vacancy.url, planner, trace=trace)
+                outcome = apply_on_page(page, run.portal, apply_url(run.portal, vacancy.url), planner, trace=trace)
             except Exception as exc:
                 outcome = {"status": "error", "reason": "fallo_tecnico", "message": str(exc)[:300], "trace": trace}
             try:
@@ -766,33 +907,49 @@ def finish(db, run, outcome: dict):
         acc.status = "expired"
     status = outcome.get("status", "error")
     questions = outcome.pop("questions", None)
+    planned = outcome.pop("planned", None) or []
     outcome.pop("fields", None)
     run.status, run.updated = status, datetime.utcnow()
     run.detail = {**outcome, "questions": questions or []}
     payload = {"run_id": run.id, "portal": run.portal, "motivo": outcome.get("reason"), "mensaje": outcome.get("message", ""),
                "captura": outcome.get("captura"), "respuestas_enviadas": trace.get("filled", [])}
+    def questions_form():
+        """Las preguntas sin dato quedan en «Respuestas»; las deducidas del CV llegan ya propuestas."""
+        proposed = [{"field_id": s["key"], "label": s["label"], "answer": s["value"], "fuente": s.get("source", ""),
+                     "necesita_input": False, "bloqueada": False, "nota": "Propuesta de JobFlow: revísala antes de aprobar."}
+                    for s in planned]
+        form = FormularioResuelto(profile_id=run.profile_id, postulacion_id=app.id, plataforma=run.portal,
+                                  campos_detectados=planned + questions, mapeo_semantico=[],
+                                  respuestas_generadas=proposed + [{"field_id": q["key"], "label": q["label"], "answer": "",
+                                                                    "fuente": "", "necesita_input": True,
+                                                                    "bloqueada": "sensible" in q.get("reason", ""),
+                                                                    "nota": q.get("reason", ""), "opciones": q.get("options", [])}
+                                                                   for q in questions],
+                                  aprobado_por_usuario=False)
+        db.add(form)
+        db.flush()
+        payload["form_id"] = form.id
+
     if status == "postulada":
+        already = db.query(AuditEvent).filter_by(application_id=app.id, action="postulada").first()
         app.estado = "postulada"
         app.fecha_envio = app.fecha_envio or datetime.utcnow()
-        app.respuestas_formulario = trace.get("filled", [])
-        db.add(AuditEvent(application_id=app.id, action="postulada", payload={
-            **payload, "tipo_evidencia": "mensaje_portal", "evidencia": outcome.get("evidence", ""),
-            "fuente": "Confirmación detectada por JobFlow en el portal" + (" (postulación previa)" if outcome.get("previa") else ""),
-            "cv_version_id": outcome.get("cv_version_id")}))
+        app.respuestas_formulario = (app.respuestas_formulario or []) + trace.get("filled", []) if already else trace.get("filled", [])
+        if questions:
+            questions_form()
+        if not already:
+            db.add(AuditEvent(application_id=app.id, action="postulada", payload={
+                **payload, "tipo_evidencia": "mensaje_portal", "evidencia": outcome.get("evidence", ""),
+                "fuente": "Confirmación detectada por JobFlow en el portal" + (" (postulación previa)" if outcome.get("previa") else ""),
+                "cv_version_id": outcome.get("cv_version_id")}))
+        if questions:
+            db.add(AuditEvent(application_id=app.id, action="preguntas_pendientes", payload=payload))
+        elif already:
+            db.add(AuditEvent(application_id=app.id, action="preguntas_respondidas", payload=payload))
     elif status == "bloqueada":
         app.estado = "bloqueada"
         if questions:
-            form = FormularioResuelto(profile_id=run.profile_id, postulacion_id=app.id, plataforma=run.portal,
-                                      campos_detectados=questions, mapeo_semantico=[],
-                                      respuestas_generadas=[{"field_id": q["key"], "label": q["label"], "answer": "",
-                                                             "fuente": "", "necesita_input": True,
-                                                             "bloqueada": "sensible" in q.get("reason", ""),
-                                                             "nota": q.get("reason", ""), "opciones": q.get("options", [])}
-                                                            for q in questions],
-                                      aprobado_por_usuario=False)
-            db.add(form)
-            db.flush()
-            payload["form_id"] = form.id
+            questions_form()
         db.add(AuditEvent(application_id=app.id, action="bloqueada", payload=payload))
     elif status == "intento_no_confirmado":
         app.estado = "intento_no_confirmado"
@@ -803,7 +960,7 @@ def finish(db, run, outcome: dict):
     return run
 
 
-def queue_application(db, aid: int, confirm_not_sent: bool = False) -> AutoApplyRun:
+def queue_application(db, aid: int, confirm_not_sent: bool = False, complete_questions: bool = False) -> AutoApplyRun:
     from .career import application, require_ready
     app, vacancy = application(db, aid)
     require_ready(db, app.profile_id)
@@ -811,11 +968,16 @@ def queue_application(db, aid: int, confirm_not_sent: bool = False) -> AutoApply
     if portal in UNSUPPORTED:
         raise HTTPException(409, UNSUPPORTED[portal])
     if portal not in PORTALS:
-        raise HTTPException(409, "La postulación automática está disponible para avisos de Bumeran y Computrabajo.")
+        raise HTTPException(409, "La postulación automática está disponible para avisos de Bumeran, Computrabajo y LinkedIn.")
     if app.estado in BLOCKED_STATES:
         raise HTTPException(409, "Esta vacante está marcada como incompatible, duplicada, vencida o rechazada.")
+    last = db.query(AutoApplyRun).filter_by(application_id=aid).order_by(AutoApplyRun.id.desc()).first()
     if db.query(AuditEvent).filter_by(application_id=aid, action="postulada").first():
-        raise HTTPException(409, "Esta candidatura ya tiene una postulación confirmada.")
+        # Only the questions the portal left unanswered can be sent again, never the application.
+        if not (complete_questions and last and last.status == "postulada" and (last.detail or {}).get("questions")):
+            raise HTTPException(409, "Esta candidatura ya tiene una postulación confirmada.")
+        if not approved_answers(db, aid):
+            raise HTTPException(409, "Responde y aprueba primero las preguntas pendientes en «Respuestas».")
     detail = db.query(ApplicationDetail).filter_by(application_id=aid).first()
     if detail and (detail.details or {}).get("analisis", {}).get("requisito_excluyente"):
         raise HTTPException(409, "La vacante tiene un requisito excluyente. Revísala antes de postular.")
@@ -833,15 +995,25 @@ def queue_application(db, aid: int, confirm_not_sent: bool = False) -> AutoApply
                                          AutoApplyRun.status.in_(("en_cola", "ejecutando", "postulada", "intento_no_confirmado"))).count()
     if used >= DAILY_LIMIT:
         raise HTTPException(429, f"Llegaste al límite de {DAILY_LIMIT} postulaciones automáticas en 24 horas.")
+    if portal in PORTAL_LIMITS:
+        on_portal = db.query(AutoApplyRun).filter(AutoApplyRun.profile_id == app.profile_id, AutoApplyRun.portal == portal,
+                                                  AutoApplyRun.created >= since,
+                                                  AutoApplyRun.status.in_(("en_cola", "ejecutando", "postulada", "intento_no_confirmado"))).count()
+        if on_portal >= PORTAL_LIMITS[portal]:
+            raise HTTPException(429, f"Llegaste al límite de {PORTAL_LIMITS[portal]} postulaciones en {PORTALS[portal]['nombre']} "
+                                     "en 24 horas, para cuidar tu cuenta.")
     ok, note = browser_status()
     if not ok:
         raise HTTPException(409, note)
-    run = AutoApplyRun(application_id=aid, profile_id=app.profile_id, portal=portal, status="en_cola",
-                       detail={"confirmado_no_enviado": confirm_not_sent} if confirm_not_sent else {})
+    detail = {"confirmado_no_enviado": confirm_not_sent} if confirm_not_sent else {}
+    if complete_questions:
+        detail["modo"] = "completar_preguntas"
+    run = AutoApplyRun(application_id=aid, profile_id=app.profile_id, portal=portal, status="en_cola", detail=detail)
     db.add(run)
     db.flush()
     db.add(AuditEvent(application_id=aid, action="auto_postulacion_autorizada", payload={
-        "run_id": run.id, "portal": portal, "confirmo_intento_previo_no_enviado": confirm_not_sent}))
+        "run_id": run.id, "portal": portal, "confirmo_intento_previo_no_enviado": confirm_not_sent,
+        "modo": detail.get("modo", "postular")}))
     db.commit()
     return run
 
@@ -852,6 +1024,7 @@ def run_data(run: AutoApplyRun) -> dict:
             "created": run.created.isoformat(), "updated": run.updated.isoformat() if run.updated else None,
             "message": d.get("message", ""), "reason": d.get("reason", ""), "evidence": d.get("evidence", ""),
             "questions": d.get("questions", []), "filled": (d.get("trace") or {}).get("filled", []),
+            "mode": d.get("modo", "postular"),
             "screenshot": f"/api/portals/runs/{run.id}/captura" if d.get("captura") else None}
 
 
@@ -860,6 +1033,11 @@ def run_data(run: AutoApplyRun) -> dict:
 # --------------------------------------------------------------------------- #
 class ApplyRequest(BaseModel):
     confirm_not_sent: bool = False
+    complete_questions: bool = False
+
+
+class ConnectRequest(BaseModel):
+    acepto_riesgo: bool = False
 
 
 class BatchRequest(BaseModel):
@@ -880,18 +1058,21 @@ def portals_status(pid: int, db: Session = Depends(get_db)):
             status = "expired"  # sessions saved by 0.6.0 used the blocked automation browser
         accounts.append({"portal": key, "nombre": cfg["nombre"], "status": status,
                          "connected_at": acc.connected_at.isoformat() if acc else None,
-                         "login": {"status": login["status"], "message": login["message"]} if login else None})
+                         "login": {"status": login["status"], "message": login["message"]} if login else None,
+                         "riesgo": cfg.get("riesgo", ""), "limite_diario": PORTAL_LIMITS.get(key, DAILY_LIMIT)})
     queue = db.query(AutoApplyRun).filter(AutoApplyRun.profile_id == pid, AutoApplyRun.status.in_(ACTIVE_RUNS)).count()
     return {"browser_available": ok, "browser_note": note, "accounts": accounts, "unsupported": UNSUPPORTED,
             "queue": queue, "daily_limit": DAILY_LIMIT}
 
 
 @router.post("/{pid}/{portal}/connect")
-def connect_portal(pid: int, portal: str, db: Session = Depends(get_db)):
+def connect_portal(pid: int, portal: str, req: ConnectRequest | None = None, db: Session = Depends(get_db)):
     from .career import profile_row
     profile_row(db, pid)
     if portal not in PORTALS:
         raise HTTPException(404, UNSUPPORTED.get(portal, "Portal no disponible"))
+    if PORTALS[portal].get("riesgo") and not (req and req.acepto_riesgo):
+        raise HTTPException(409, PORTALS[portal]["riesgo"] + " Confirma que aceptas ese riesgo para conectar la cuenta.")
     ok, note = browser_status()
     if not ok:
         raise HTTPException(409, note)
@@ -949,7 +1130,7 @@ def disconnect_portal(pid: int, portal: str, db: Session = Depends(get_db)):
 
 @router.post("/applications/{aid}/apply", status_code=202)
 def apply_application(aid: int, req: ApplyRequest, db: Session = Depends(get_db)):
-    run = queue_application(db, aid, req.confirm_not_sent)
+    run = queue_application(db, aid, req.confirm_not_sent, req.complete_questions)
     ensure_worker()
     return run_data(run)
 

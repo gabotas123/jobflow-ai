@@ -22,7 +22,7 @@ from .workflow import norm
 PLATFORMS = {
     "bumeran": {"nombre": "Bumeran", "modo": "postulacion_automatica"},
     "computrabajo": {"nombre": "Computrabajo", "modo": "postulacion_automatica"},
-    "linkedin": {"nombre": "LinkedIn", "modo": "copiloto"},
+    "linkedin": {"nombre": "LinkedIn", "modo": "postulacion_automatica"},
     "indeed": {"nombre": "Indeed", "modo": "enlace"},
 }
 

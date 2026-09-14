@@ -5,6 +5,20 @@ Todos los cambios del proyecto, con fecha y commit. El historial vivo está en:
 
 ---
 
+## 09-13 · Postulación que sí rellena las preguntas + LinkedIn
+- **Bumeran**: registra la postulación al pulsar «Postularme» y luego abre «Responde las
+  preguntas». JobFlow no reconocía esa ventana (sin marca de diálogo), leía el contador
+  «0 / 2000» como pregunta e ignoraba el botón «Responder» desactivado. Ahora detecta la
+  confirmación «Postulado el…», lee bien cada pregunta y la responde.
+- **Respuestas desde el CV confirmado** (`cv_answers.py`): «¿Tienes experiencia en X?» → «Sí»
+  citando la función real; «¿Cuántos años…?» → calculado con las fechas (requiere mes y año);
+  niveles de idioma/herramientas. Sin evidencia, la pregunta queda para ti.
+- Las preguntas pendientes llegan a «Respuestas» con las deducidas ya propuestas; al
+  aprobarlas, «Enviar respuestas al portal» las completa sin volver a postular.
+- Las respuestas aprobadas se reutilizan en otras vacantes (salvo motivación o «esta empresa»).
+- Espera hasta 15 s a que el portal cargue el botón de postular.
+- **LinkedIn «Solicitud sencilla»** con aceptación explícita del riesgo, máximo 8 por día.
+
 ## 09-13 · Privacidad de las cuentas: sin perfil precargado ni reclamos públicos
 - Una base nueva **ya no crea el perfil de ejemplo** con datos de una persona real:
   quedaba sin dueño y cualquier cuenta nueva podía reclamarlo. Solo se crea con

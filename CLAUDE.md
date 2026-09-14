@@ -12,7 +12,8 @@ Estado: **v0.6.1** en `main` (github.com/gabotas123/jobflow-ai), desplegada en R
 4. No resolver CAPTCHA, pruebas ni videos; no aceptar términos ni responder preguntas sensibles (DNI, salud…) por el candidato.
 5. Sin duplicados: huella por URL normalizada + posible duplicado entre portales (empresa/puesto/ubicación) que requiere revisión.
 6. Nunca guardar ni pedir contraseñas de portales. Las cuentas de portales se conectan con inicio de sesión personal en el navegador. (La contraseña de la **cuenta de JobFlow** sí existe, pero solo como hash scrypt en `usuarios.password_hash`.)
-7. LinkedIn e Indeed no se automatizan (condiciones de uso / bloqueo): solo preparación.
+7. Indeed no se automatiza (bloquea el acceso). LinkedIn sí («Solicitud sencilla»), pero solo tras aceptar explícitamente el riesgo para la cuenta, con límite diario bajo (`JOBFLOW_LINKEDIN_DAILY_LIMIT`, 8).
+8. Las preguntas se responden con evidencia del CV confirmado (`cv_answers.py`): «Sí» citando la función real, años calculados con fechas mes/año. Nunca «No» ni supuestos; sin evidencia queda pendiente para el candidato.
 
 ## Arquitectura
 
@@ -28,6 +29,7 @@ FastAPI + SQLAlchemy (SQLite) + SPA sin framework en `web/` (JS compacto en `app
 | `jobflow/job_extract.py` | Lee un aviso por enlace: JSON-LD `JobPosting` (Computrabajo, LinkedIn, otros) y API pública de Bumeran; `enrich()` detecta herramientas/años/formación. `fetch_public()` bloquea IPs privadas en cada redirección. |
 | `jobflow/job_search.py` | Búsqueda: Bumeran (API `searchV2`), Computrabajo (tarjetas HTML), LinkedIn (listado público). Indeed: solo enlace. |
 | `jobflow/autofill.py`, `answer_generator.py` | Mapeo de preguntas → hechos del perfil; respuestas solo con datos confirmados; aprobación humana. |
+| `jobflow/cv_answers.py` | Respuestas a preguntas de postulación deducidas del CV confirmado (experiencia sí/no con evidencia, años por fechas, niveles). |
 | `jobflow/portal_accounts.py` | Cuentas de Bumeran/Computrabajo y postulación automática (ver abajo). |
 | `jobflow/google_integration.py` | OAuth Gmail/Calendar (requiere credenciales propias en el servidor). |
 

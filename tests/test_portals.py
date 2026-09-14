@@ -182,7 +182,7 @@ def test_queue_rules_and_uncertain_attempts(client, monkeypatch):
     r = client.post(f'/api/portals/applications/{aid}/apply', json={})
     assert r.status_code == 409 and 'Conecta tu cuenta' in r.json()['detail']
     status = client.get(f'/api/portals/{pid}').json()
-    assert [a['status'] for a in status['accounts']] == ['disconnected', 'disconnected']
+    assert [a['status'] for a in status['accounts']] == ['disconnected', 'disconnected', 'disconnected']
     connect(pid)
     monkeypatch.setenv('RENDER', 'true')
     assert 'computadora' in client.post(f'/api/portals/applications/{aid}/apply', json={}).json()['detail']
@@ -265,10 +265,10 @@ def portal_page():
         pytest.skip(f'Chromium no disponible: {exc}')
     pages = {}
 
-    def open_with(body, path='/empleos/analista-1.html'):
+    def open_with(body, path='/empleos/analista-1.html', host='www.bumeran.com.pe'):
         context = browser.new_context()
-        context.route('https://www.bumeran.com.pe/**', lambda route: route.fulfill(
-            status=200, content_type='text/html; charset=utf-8', body=pages.get(route.request.url.split('bumeran.com.pe')[1].split('?')[0], '<p>Inicia sesión</p>')))
+        context.route(f'https://{host}/**', lambda route: route.fulfill(
+            status=200, content_type='text/html; charset=utf-8', body=pages.get(route.request.url.split(host)[1].split('?')[0], '<p>Inicia sesión</p>')))
         pages[path] = body
         return context.new_page()
     yield open_with
@@ -382,3 +382,162 @@ def test_worker_applies_end_to_end_with_evidence(client, monkeypatch):
     app_data = next(a for a in client.get(f'/api/applications?profile_id={pid}').json() if a['id'] == aid)
     assert app_data['estado'] == 'postulada'
     assert [e['accion'] for e in app_data['auditoria']][-3:] == ['auto_postulacion_autorizada', 'auto_postulacion_iniciada', 'postulada']
+
+
+# --------------------------------------------------------------------------- #
+#  Respuestas deducidas del CV (v0.7)
+# --------------------------------------------------------------------------- #
+from datetime import date as _date
+from jobflow.cv_answers import answer_question, parse_month, experience_months, choose_years_option
+
+
+def cv_profile(dated=True):
+    p = confirmed_profile()
+    p.experiencia = [
+        {'empresa': 'Liberty Seguros Perú / Liberty Specialty Markets', 'cargo': 'Practicante de Finanzas - Cobranzas',
+         'inicio': 'Jun. 2025' if dated else '2025', 'fin': 'Jun. 2026' if dated else '2026',
+         'bullets': ['Analicé aging, saldos y pagos para priorizar cuentas vencidas de cobranzas B2B.']},
+        {'empresa': 'Los Portales', 'cargo': 'Practicante de Costos', 'inicio': 'Ene. 2025', 'fin': 'Mar. 2025',
+         'bullets': ['Monitoreé costos y presupuestos EAC con reportes en Excel.']},
+    ]
+    p.languages = {'ingles': 'Avanzado'}
+    return p
+
+
+def test_dates_and_years_are_computed_only_with_months():
+    today = _date(2026, 9, 13)
+    assert parse_month('Mar. 2024') == (2024, 3) and parse_month('marzo de 2024') == (2024, 3)
+    assert parse_month('03/2024') == (2024, 3) and parse_month('Actualidad', today) == (2026, 9)
+    assert parse_month('2024') is None
+    assert experience_months({'inicio': 'Jun. 2025', 'fin': 'Jun. 2026'}) == 13
+    assert choose_years_option(['Menos de 1 año', '1 a 2 años', 'Más de 2 años'], 13) == '1 a 2 años'
+    q = '¿Cuántos años de experiencia tienes en cobranzas?'
+    assert answer_question(q, 'number', [], cv_profile())['value'] == '1'
+    assert '1 año y 1 mes' in answer_question(q, 'textarea', [], cv_profile())['value']
+    assert 'Completa el mes' in answer_question(q, 'number', [], cv_profile(dated=False))['reason']
+    assert 'reason' in answer_question('¿Cuántos años de experiencia tienes en empresas de consumo masivo o retail?', 'textarea', [], cv_profile())
+
+
+def test_yes_no_answers_cite_evidence_and_never_say_no():
+    p = cv_profile()
+    text = answer_question('¿Tienes experiencia en procesos contables y cobranzas?', 'textarea', [], p)['value']
+    assert text.startswith('Sí, en cobranzas.') and 'Liberty Seguros Perú' in text
+    # A yes/no choice cannot explain a partial match, so it waits for the candidate.
+    assert 'reason' in answer_question('¿Tienes experiencia en procesos contables y cobranzas?', 'radio', ['Sí', 'No'], p)
+    assert answer_question('¿Manejas Excel?', 'select', ['Selecciona', 'Sí', 'No'], p)['value'] == 'Sí'
+    assert 'reason' in answer_question('¿Tienes experiencia en SAP FI?', 'radio', ['Sí', 'No'], p)
+    assert answer_question('Nivel de inglés', 'select', ['Básico', 'Avanzado'], p)['value'] == 'Avanzado'
+
+
+def test_answer_bank_reuses_approved_answers_but_not_company_specific_ones(client):
+    from jobflow.models import FormularioResuelto
+    pid = ready_profile(client)
+    first = import_job(client, pid, f'https://example.com/banco/{pid}/1', 'Analista de créditos')
+    db = SessionLocal()
+    db.add(FormularioResuelto(profile_id=pid, postulacion_id=first, plataforma='bumeran', aprobado_por_usuario=True,
+                              respuestas_generadas=[{'label': '¿Cuál es tu expectativa salarial?', 'answer': 'S/ 3,000'},
+                                                    {'label': '¿Por qué quieres trabajar en esta empresa?', 'answer': 'Por Koplast'}]))
+    db.commit()
+    bank = portals.answer_bank(db, pid)
+    db.close()
+    assert bank == {'¿cual es tu expectativa salarial?': 'S/ 3,000'}
+
+
+def test_linkedin_needs_explicit_risk_acceptance_and_normalized_url(client, monkeypatch):
+    monkeypatch.delenv('RENDER', raising=False)
+    monkeypatch.setattr(portals, 'login_worker', lambda pid, portal: None)
+    pid = ready_profile(client)
+    r = client.post(f'/api/portals/{pid}/linkedin/connect')
+    assert r.status_code == 409 and 'prohíben' in r.json()['detail']
+    assert client.post(f'/api/portals/{pid}/linkedin/connect', json={'acepto_riesgo': True}).status_code == 200
+    portals.LOGINS.pop((pid, 'linkedin'), None)
+    assert portals.apply_url('linkedin', 'https://pe.linkedin.com/jobs/view/analista-de-cobranzas-at-aris-4454836420') == \
+        'https://www.linkedin.com/jobs/view/4454836420/'
+
+
+BUMERAN_REAL = """<!doctype html><html><head><meta charset="utf-8"><style>
+.overlay{position:fixed;inset:0;background:#0006;z-index:50;display:none}.modal{background:#fff;margin:40px auto;width:700px;padding:20px}
+</style></head><body><header><input placeholder="Buscar empleo por puesto o palabra clave"></header>
+<main><h1>Analista de Créditos y Cobranzas</h1><aside id="side">STATE</aside></main>
+<div class="overlay" id="ov"><div class="modal"><h2>Responde las preguntas</h2><p>Es importante para la empresa que brindes más información.</p>
+<div class="q"><p>¿Cual es tu expectativa salarial? <span>*</span></p><div><textarea placeholder="Ingresa tu respuesta"></textarea><span>0 / 2000</span></div></div>
+<div class="q"><p>¿Cuántos años de experiencia tienes en empresas de consumo masivo o retail?<span>*</span></p><div><textarea placeholder="Ingresa tu respuesta"></textarea><span>0 / 2000</span></div></div>
+<div class="q"><p>¿Tienes experiencia en procesos contables y cobranzas?<span>*</span></p><div><textarea placeholder="Ingresa tu respuesta"></textarea><span>0 / 2000</span></div></div>
+<button id="resp" disabled>Responder</button></div></div>
+<script>
+window.applications = 0; window.answers = null;
+const areas = [...document.querySelectorAll('textarea')];
+areas.forEach(a => a.addEventListener('input', () => { resp.disabled = areas.some(x => !x.value.trim()); }));
+function openQuestions() { ov.style.display = 'block'; }
+function wire() {
+  const go = document.getElementById('go');
+  if (go) go.onclick = () => { window.applications++; side.innerHTML = '<p>Postulado el 13/09/2026</p><button id="card">Preguntas sin responder<br><small>Responde las preguntas para aumentar tus chances</small></button>'; wire(); openQuestions(); };
+  const card = document.getElementById('card'); if (card) card.onclick = openQuestions;
+}
+resp.onclick = () => { window.answers = areas.map(a => a.value); ov.style.display = 'none'; side.innerHTML = '<p>Postulado el 13/09/2026</p>'; };
+wire();
+</script></body></html>"""
+
+
+def test_bumeran_registers_application_then_answers_questions_from_cv(portal_page):
+    page = portal_page(BUMERAN_REAL.replace('STATE', '<button id="go">Postularme</button>'))
+    profile = cv_profile()
+    out = portals.apply_on_page(page, 'bumeran', 'https://www.bumeran.com.pe/empleos/analista-1.html',
+                                lambda fields: portals.plan_fields(fields, profile, 'Analista', {}))
+    assert out['status'] == 'postulada' and out['reason'] == 'preguntas_pendientes', out
+    assert page.evaluate('window.applications') == 1 and page.evaluate('window.answers') is None
+    assert [q['label'] for q in out['questions']] == ['¿Cuántos años de experiencia tienes en empresas de consumo masivo o retail?']
+    proposed = {s['label']: s['value'] for s in out['planned']}
+    assert proposed['¿Cual es tu expectativa salarial?'] == 'S/2,500–2,800'
+    assert proposed['¿Tienes experiencia en procesos contables y cobranzas?'].startswith('Sí, en cobranzas.')
+
+
+def test_bumeran_completes_pending_questions_with_approved_answers(portal_page):
+    card = '<p>Postulado el 13/09/2026</p><button id="card">Preguntas sin responder<br><small>Responde las preguntas para aumentar tus chances</small></button>'
+    page = portal_page(BUMERAN_REAL.replace('STATE', card))
+    profile = cv_profile()
+    approved = {'¿cuantos anos de experiencia tienes en empresas de consumo masivo o retail?': 'No tengo experiencia en consumo masivo o retail.'}
+    out = portals.apply_on_page(page, 'bumeran', 'https://www.bumeran.com.pe/empleos/analista-1.html',
+                                lambda fields: portals.plan_fields(fields, profile, 'Analista', approved))
+    assert out['status'] == 'postulada' and not out['questions'], out
+    answers = page.evaluate('window.answers')
+    assert answers[0] == 'S/2,500–2,800' and answers[1].startswith('No tengo') and answers[2].startswith('Sí, en cobranzas.')
+    assert page.evaluate('window.applications') == 0  # never applies again
+
+
+LINKEDIN_EASY_APPLY = """<!doctype html><html><head><meta charset="utf-8"></head><body>
+<main><h1>Analista de cobranzas</h1><button id="easy">Solicitud sencilla</button></main>
+<div role="dialog" id="dlg" style="display:none">
+ <section id="s1"><label for="mail">Dirección de correo electrónico</label><select id="mail" required><option>Selecciona una opción</option><option selected>ana@example.com</option></select>
+  <label for="tel">Número de teléfono móvil</label><input id="tel" required><button id="n1">Siguiente</button></section>
+ <section id="s2" style="display:none"><label for="yrs">¿Cuántos años de experiencia tienes en cobranzas?</label><input id="yrs" type="number" required>
+  <fieldset><legend>¿Tienes experiencia con Excel?</legend><input type="radio" name="xl" id="xy" value="Yes" required><label for="xy">Sí</label>
+  <input type="radio" name="xl" id="xn" value="No"><label for="xn">No</label></fieldset><button id="n2">Revisar</button></section>
+ <section id="s3" style="display:none"><p>Revisa tu solicitud</p><button id="send">Enviar solicitud</button></section>
+ <section id="ok" style="display:none"><h2>Se envió tu solicitud a ARIS</h2><button>Listo</button></section>
+</div>
+<script>
+window.sent = 0; window.data = null;
+easy.onclick = () => { dlg.style.display = 'block'; };
+n1.onclick = () => { if (!tel.value) return; s1.style.display = 'none'; s2.style.display = 'block'; };
+n2.onclick = () => { if (!yrs.value || !document.querySelector('input[name=xl]:checked')) return; s2.style.display = 'none'; s3.style.display = 'block'; };
+send.onclick = () => { window.sent++; window.data = {tel: tel.value, yrs: yrs.value, xl: document.querySelector('input[name=xl]:checked').id}; s3.style.display = 'none'; ok.style.display = 'block'; };
+</script></body></html>"""
+
+
+def test_linkedin_easy_apply_multi_step_with_cv_answers(portal_page):
+    page = portal_page(LINKEDIN_EASY_APPLY, path='/jobs/view/4454836420/', host='www.linkedin.com')
+    profile = cv_profile()
+    out = portals.apply_on_page(page, 'linkedin', 'https://www.linkedin.com/jobs/view/4454836420/',
+                                lambda fields: portals.plan_fields(fields, profile, 'Analista de cobranzas', {}))
+    assert out['status'] == 'postulada', out
+    assert page.evaluate('window.sent') == 1
+    assert page.evaluate('window.data') == {'tel': '999888777', 'yrs': '1', 'xl': 'xy'}
+    assert out['trace']['clicks'] == ['Solicitud sencilla', 'Siguiente', 'Revisar', 'Enviar solicitud']
+
+
+def test_linkedin_external_apply_is_reported_clearly(portal_page):
+    page = portal_page('<h1>Analista</h1><a href="https://empresa.example/jobs">Solicitar</a>', path='/jobs/view/1234567/', host='www.linkedin.com')
+    out = portals.apply_on_page(page, 'linkedin', 'https://www.linkedin.com/jobs/view/1234567/',
+                                lambda fields: portals.plan_fields(fields, cv_profile(), 'Analista', {}))
+    assert out['reason'] == 'sin_boton' and 'Solicitud sencilla' in out['message']
