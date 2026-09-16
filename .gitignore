@@ -37,3 +37,6 @@ pip_install.log
 *.zip
 data/*.respaldo-*
 data/worker.lock
+
+# Enlaces simbolicos que crea "npx skills add" (se regeneran; las skills reales viven en .agents/skills)
+.claude/skills/

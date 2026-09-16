@@ -5,6 +5,23 @@ Todos los cambios del proyecto, con fecha y commit. El historial vivo está en:
 
 ---
 
+## 09-16 · Sistema de diseño y revisión de interfaz
+- **`DESIGN.md`** en la raíz: paleta verde, tipografía, espaciados, componentes y reglas de
+  producto (cifra antes del verbo, nada se envía sin verse, estados con evidencia). Cualquier
+  agente que toque la interfaz lo lee primero. Formato DESIGN.md (Google Stitch).
+- **Skills de diseño** (`npx skills add Leonxlnx/taste-skill`) en `.agents/skills/`: 13 skills de
+  dirección de arte, `image-to-code`, `redesign-existing-projects`, `high-end-visual-design`.
+- **Comando `/web-interface-guidelines`**: revisa archivos de interfaz contra las guías de
+  Vercel Labs (accesibilidad, foco, formularios, animación, tipografía, rendimiento, i18n).
+- **Correcciones de la primera revisión**: la fuente Inter se carga con `preconnect` en el HTML
+  en vez de `@import` (bloqueaba el render); la barra de avance de la cola es un
+  `role="progressbar"` con valor y texto, animada con `transform` y respetando
+  `prefers-reduced-motion`; el contador de selección masiva y los estados de la cola se anuncian
+  con `aria-live`; cifras con `tabular-nums`; `content-visibility` en tarjetas de aviso y filas de
+  cola; `cursor: not-allowed` en botones deshabilitados y `aria-busy` mientras cargan.
+
+---
+
 ## 09-14 · Postulación masiva y pruebas reales en Bumeran y Computrabajo
 - **Postulación masiva**: en Oportunidades marcas vacantes (o todas sobre una compatibilidad
   mínima) y «Postular a N vacantes». JobFlow lee cada aviso, descarta las incompatibles y las
