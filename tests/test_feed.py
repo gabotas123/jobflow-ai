@@ -102,6 +102,14 @@ def test_referrals_only_offer_search_links(client,fake_search):
     assert all(l['url'].startswith('https://') for l in ref['enlaces'])
     assert 'Luis' in ref['mensaje'] and ref['empresa'] in ref['mensaje']
 
+def test_deleting_the_profile_clears_its_feed(client,fake_search):
+    pid=candidate(client);ready(client,pid)
+    client.post(f'/api/feed/{pid}/actualizar')
+    assert client.get(f'/api/feed/{pid}').json()['counts']['total']==6
+    assert client.delete(f'/api/profiles/{pid}').status_code==200
+    # SQLite puede reutilizar el id del perfil borrado: el feed anterior no puede reaparecer.
+    assert client.get(f'/api/feed/{candidate(client)}').json()['counts']['total']==0
+
 def test_feed_is_private_to_its_account(client,fake_search):
     pid=candidate(client);ready(client,pid)
     client.post(f'/api/feed/{pid}/actualizar')
