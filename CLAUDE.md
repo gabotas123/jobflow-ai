@@ -77,6 +77,18 @@ python -m venv .venv
 
 `data/` (base con datos personales del CV, `data/navegador/` con **sesiones iniciadas** en los portales, `data/evidencias/`, `data/.jobflow_key`), `.env`, contraseñas de Render. Todo está en `.gitignore`. Para colaborar, clonar el repositorio: no compartir la carpeta local ni un ZIP de ella.
 
+## Diseño de la interfaz
+
+- **`DESIGN.md`** (raíz) es la fuente de verdad visual: tokens de color, tipografía, espaciado,
+  componentes y reglas de producto. Léelo antes de tocar `web/`.
+- **Skills de diseño** en `.agents/skills/` (instaladas con `npx skills add Leonxlnx/taste-skill`).
+  Los enlaces de `.claude/skills/` no se versionan: si al clonar no aparecen, vuelve a correr
+  ese comando. Útiles: `redesign-existing-projects`, `high-end-visual-design`, `image-to-code`.
+- **`/web-interface-guidelines web/index.html web/app.js web/styles.css`** revisa la interfaz
+  contra las guías de Vercel Labs antes de subir cambios de UI.
+- Referencias de sistemas de diseño reales (74 ejemplos) en
+  `../referencias-diseno/awesome-design-md/design-md/`, fuera del repo.
+
 ## Flujo de trabajo
 
 - Cambios en una rama y PR a `main`; `main` despliega en Render automáticamente.

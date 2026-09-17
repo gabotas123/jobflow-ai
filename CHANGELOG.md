@@ -5,6 +5,38 @@ Todos los cambios del proyecto, con fecha y commit. El historial vivo está en:
 
 ---
 
+## 09-16 · «Para ti»: feed diario de empleos del Perú
+- **Feed diario** (`jobflow/feed.py`): JobFlow recorre solo tus puestos objetivo en Bumeran,
+  Computrabajo y LinkedIn, puntúa cada aviso, descarta lo incompatible y guarda lo nuevo. No
+  repite lo que ya viste ni lo que ya postulaste. El planificador lo actualiza cada 20 horas.
+- **Tarjeta con puntaje y brechas**: compatibilidad sobre 100, «Cumples 7 de 9 criterios» y la
+  lista de lo que te falta declarar, para decidir en un vistazo.
+- **Adaptar mi CV** en un clic desde el aviso: crea la candidatura, genera la versión adaptada y
+  abre la pestaña del CV (`#application/{id}/cv`, ahora enlazable).
+- **Referidos**: enlaces de búsqueda de personas y un mensaje redactado para pedir referencia.
+  JobFlow no lee ni guarda datos de terceros: solo abre la búsqueda y escribe el borrador.
+- **Postulación masiva desde el feed**: la barra de selección ahora funciona en cualquier
+  pantalla que liste vacantes (`data-mass-bar`), con la misma cola y los mismos límites diarios.
+
+---
+
+## 09-16 · Sistema de diseño y revisión de interfaz
+- **`DESIGN.md`** en la raíz: paleta verde, tipografía, espaciados, componentes y reglas de
+  producto (cifra antes del verbo, nada se envía sin verse, estados con evidencia). Cualquier
+  agente que toque la interfaz lo lee primero. Formato DESIGN.md (Google Stitch).
+- **Skills de diseño** (`npx skills add Leonxlnx/taste-skill`) en `.agents/skills/`: 13 skills de
+  dirección de arte, `image-to-code`, `redesign-existing-projects`, `high-end-visual-design`.
+- **Comando `/web-interface-guidelines`**: revisa archivos de interfaz contra las guías de
+  Vercel Labs (accesibilidad, foco, formularios, animación, tipografía, rendimiento, i18n).
+- **Correcciones de la primera revisión**: la fuente Inter se carga con `preconnect` en el HTML
+  en vez de `@import` (bloqueaba el render); la barra de avance de la cola es un
+  `role="progressbar"` con valor y texto, animada con `transform` y respetando
+  `prefers-reduced-motion`; el contador de selección masiva y los estados de la cola se anuncian
+  con `aria-live`; cifras con `tabular-nums`; `content-visibility` en tarjetas de aviso y filas de
+  cola; `cursor: not-allowed` en botones deshabilitados y `aria-busy` mientras cargan.
+
+---
+
 ## 09-14 · Postulación masiva y pruebas reales en Bumeran y Computrabajo
 - **Postulación masiva**: en Oportunidades marcas vacantes (o todas sobre una compatibilidad
   mínima) y «Postular a N vacantes». JobFlow lee cada aviso, descarta las incompatibles y las
