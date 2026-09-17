@@ -5,6 +5,21 @@ Todos los cambios del proyecto, con fecha y commit. El historial vivo está en:
 
 ---
 
+## 09-16 · «Para ti»: feed diario de empleos del Perú
+- **Feed diario** (`jobflow/feed.py`): JobFlow recorre solo tus puestos objetivo en Bumeran,
+  Computrabajo y LinkedIn, puntúa cada aviso, descarta lo incompatible y guarda lo nuevo. No
+  repite lo que ya viste ni lo que ya postulaste. El planificador lo actualiza cada 20 horas.
+- **Tarjeta con puntaje y brechas**: compatibilidad sobre 100, «Cumples 7 de 9 criterios» y la
+  lista de lo que te falta declarar, para decidir en un vistazo.
+- **Adaptar mi CV** en un clic desde el aviso: crea la candidatura, genera la versión adaptada y
+  abre la pestaña del CV (`#application/{id}/cv`, ahora enlazable).
+- **Referidos**: enlaces de búsqueda de personas y un mensaje redactado para pedir referencia.
+  JobFlow no lee ni guarda datos de terceros: solo abre la búsqueda y escribe el borrador.
+- **Postulación masiva desde el feed**: la barra de selección ahora funciona en cualquier
+  pantalla que liste vacantes (`data-mass-bar`), con la misma cola y los mismos límites diarios.
+
+---
+
 ## 09-16 · Sistema de diseño y revisión de interfaz
 - **`DESIGN.md`** en la raíz: paleta verde, tipografía, espaciados, componentes y reglas de
   producto (cifra antes del verbo, nada se envía sin verse, estados con evidencia). Cualquier

@@ -82,10 +82,12 @@ from .accounts import current_user, delete_profile, ensure_profile_slots, router
 from .career import application as owned_application, router as career_router, require_ready
 from .google_integration import router as google_router
 from .portal_accounts import router as portals_router
+from .feed import router as feed_router
 app.include_router(accounts_router)
 app.include_router(career_router)
 app.include_router(google_router)
 app.include_router(portals_router)
+app.include_router(feed_router)
 # Every /api route needs a JobFlow session; HTTP Basic remains an optional outer guard.
 from .security import AccessMiddleware
 app.add_middleware(AccessMiddleware)

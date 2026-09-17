@@ -18,6 +18,13 @@ def tick():
                 if data.get('gmail_sync_enabled'):
                     last=data.get('gmail_last_sync')
                     if not last or (now-datetime.fromisoformat(last)).total_seconds()>900:sync_gmail(db,pid)
+                if data.get('feed_auto',True) and data.get('goals_confirmed'):
+                    seen=data.get('feed_last_refresh')
+                    if not seen or (now-datetime.fromisoformat(seen)).total_seconds()>20*3600:
+                        from .feed import refresh
+                        result=refresh(db,pid)
+                        p=db.get(Preferences,pid)
+                        p.data={**p.data,'feed_last_refresh':now.isoformat(),'feed_last_new':result['nuevos']};db.commit()
                 if data.get('digest_enabled') and now.strftime('%H:%M')>=data.get('digest_time','21:00'):send_digest(db,pid)
             except Exception:
                 db.rollback()
