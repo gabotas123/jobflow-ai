@@ -1,7 +1,7 @@
 ---
 version: alpha
 name: JobFlow-AI-design-system
-description: "Un panel de trabajo claro y verde para postular en masa. El lienzo es un verde muy lavado (#f3faf5) sobre el que flotan paneles blancos con bordes finos (#d9ebdf) y sombra casi imperceptible. El verde bosque (#1b7f45) es el unico acento cromatico: marca, foco, botones primarios y estados de exito; nunca se usa como decoracion. La tipografia es Inter, con titulos de peso 750 y tracking negativo, y numeros tabulares en todo contador, porque la pantalla principal es un tablero de cifras (avisos seleccionados, enviados, en cola). El ritmo es de herramienta, no de landing: densidad media, jerarquia por peso y color antes que por cajas, y cero tarjetas dentro de tarjetas. Toda accion irreversible (postular, enviar respuestas, borrar perfil) se anuncia con su numero exacto antes de ejecutarse."
+description: "Un panel de trabajo claro y verde para postular en masa. El lienzo es un verde muy lavado (#f3faf5); cada pantalla abre con una banda verde tinte (#e2f5e8) que sostiene el titulo, y debajo viven paneles blancos planos con hairline (#d9ebdf), sin sombra: la elevacion se reserva para lo que flota (barra masiva, dialogos, menus). El verde bosque (#1b7f45) es el unico acento cromatico: marca, foco, botones primarios y estados de exito; nunca decoracion. Dos tipografias: Outfit para display (titulos, cifras, marca, puntajes) con tracking muy negativo, e Inter para interfaz y texto corrido. Los botones son pildoras (999px) y responden al pulsar. Las cifras mandan: 42px en los indicadores, 26px en el puntaje de compatibilidad, siempre tabulares. El ritmo es de herramienta, no de landing: padding vertical asimetrico (mas abajo que arriba), densidad media, jerarquia por peso y color antes que por cajas, y cero tarjetas dentro de tarjetas. Toda accion irreversible (postular, enviar respuestas, borrar perfil) se anuncia con su numero exacto antes de ejecutarse."
 ---
 
 colors:
@@ -43,22 +43,23 @@ colors-dark:
 
 typography:
   display:
-    fontFamily: Inter
-    fontSize: clamp(27px, 3vw, 39px)
-    fontWeight: 750
-    lineHeight: 1.22
-    letterSpacing: -1.3px
-  section:
-    fontFamily: Inter
-    fontSize: 19px
+    fontFamily: Outfit
+    fontSize: clamp(32px, 3.7vw, 49px)
     fontWeight: 700
-    lineHeight: 1.35
-    letterSpacing: -0.45px
-  card-title:
-    fontFamily: Inter
-    fontSize: 17px
+    lineHeight: 1.08
+    letterSpacing: -1.9px
+  section:
+    fontFamily: Outfit
+    fontSize: 21px
     fontWeight: 650
-    lineHeight: 1.4
+    lineHeight: 1.3
+    letterSpacing: -0.6px
+  card-title:
+    fontFamily: Outfit
+    fontSize: 17px
+    fontWeight: 600
+    lineHeight: 1.35
+    letterSpacing: -0.3px
   body:
     fontFamily: Inter
     fontSize: 15px
@@ -78,10 +79,17 @@ typography:
     textTransform: uppercase
     color: "{colors.primary}"
   metric:
-    fontFamily: Inter
-    fontSize: 32px
-    fontWeight: 750
-    lineHeight: 1.3
+    fontFamily: Outfit
+    fontSize: 42px
+    fontWeight: 700
+    lineHeight: 1.05
+    letterSpacing: -1.6px
+    fontVariantNumeric: tabular-nums
+  score:
+    fontFamily: Outfit
+    fontSize: 26px
+    fontWeight: 700
+    letterSpacing: -0.8px
     fontVariantNumeric: tabular-nums
   button:
     fontFamily: Inter
@@ -107,12 +115,18 @@ spacing:
   control-min-height: 44px
 
 components:
+  hero-band:
+    backgroundColor: "{colors.tint}"
+    rounded: 22px
+    padding: 34px 32px 38px       # asimetrico: mas abajo que arriba
+    paddingMobile: 22px 19px 26px
+    contains: [eyebrow, display, subtitulo, accion primaria a la derecha]
   panel:
     backgroundColor: "{colors.surface}"
     border: "1px solid {colors.hairline}"
-    rounded: "{rounded.xl}"
-    padding: "{spacing.panel}"
-    shadow: "{colors.shadow}"
+    rounded: 18px
+    padding: 26px 28px 30px
+    shadow: none                  # la elevacion se reserva para lo que flota
   stat:
     backgroundColor: "{colors.surface}"
     border: "1px solid {colors.hairline}"
@@ -122,16 +136,19 @@ components:
   button-primary:
     backgroundColor: "{colors.primary}"
     textColor: "{colors.on-primary}"
-    rounded: "{rounded.md}"
-    padding: 10px 17px
-    minHeight: 44px
+    rounded: "{rounded.pill}"
+    padding: 11px 21px
+    minHeight: 46px
     typography: "{typography.button}"
+    hover: "{colors.primary-hover}"
+    active: translateY(1px)
   button-secondary:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.ink}"
     border: "1px solid {colors.hairline}"
-    rounded: "{rounded.md}"
-    padding: 10px 17px
+    rounded: "{rounded.pill}"
+    padding: 11px 21px
+    hover: borde y texto en primary
   button-destructive:
     backgroundColor: "{colors.error}"
     textColor: "{colors.surface}"
@@ -190,7 +207,9 @@ Un agente que **postula en masa** a avisos de Bumeran, Computrabajo y LinkedIn c
 ## Reglas de layout
 
 - Columna izquierda fija de 228px (nav) y contenido con `max-width: 1280px`, `padding: 40px`.
-- Rejilla de avisos: 2 columnas en escritorio, 1 columna bajo 720px.
+- Cada pantalla abre con la banda verde tinte (`hero-band`) y debajo van paneles blancos planos.
+- Rejilla de avisos: `repeat(auto-fit, minmax(310px, 1fr))`. Nunca dos columnas forzadas: bajo 660px
+  útiles la tarjeta se parte y el badge «Nuevo» se rompe en vertical.
 - Barra de accion masiva: `position: sticky; top: 10px` en escritorio; en movil se ancla abajo, por encima de la nav.
 - Paneles de cola y preguntas siempre en el mismo orden vertical: barra masiva → cola → preguntas pendientes → resultados.
 
