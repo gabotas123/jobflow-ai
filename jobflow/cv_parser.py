@@ -179,6 +179,17 @@ def _is_marker_bullet(line: str) -> bool:
     return bool(re.match(r"^\s*[•·\-*▪\d.)]\s", line)) or bool(re.match(r"^\s*[-•·*▪]\s*\S", line))
 
 
+def _date_only(line: str) -> bool:
+    """La linea es solo un periodo («Ene. 2023 - Dic. 2024»), sin empresa ni cargo."""
+    rest = DATES_RE.sub(" ", line)
+    rest = YEARS_RE.sub(" ", rest)
+    return rest != line and len(re.sub(r"[^A-Za-zÁÉÍÓÚÑáéíóúñ]", "", rest)) < 4
+
+
+def _has_dates(text: str) -> bool:
+    return bool(DATES_RE.search(text) or YEARS_RE.search(text))
+
+
 def _is_company_or_date(line: str, low: str) -> bool:
     if DATES_RE.search(line) or YEARS_RE.search(line):
         return True
@@ -214,8 +225,17 @@ def _apply_dates(entry: dict) -> None:
     if len(parts) >= 2 and norm(parts[-1]).split()[0] in ROLE_WORDS:
         entry["cargo"] = parts[-1]
         text = " - ".join(parts[:-1]) if len(parts) > 2 else parts[0]
+    elif len(parts) >= 2 and not entry["cargo"] and norm(parts[0]).split()[0] in ROLE_WORDS:
+        # orden inverso, igual de comun: «Asistente de Cobranzas - Corporacion Andina SAC»
+        entry["cargo"] = parts[0]
+        text = " - ".join(parts[1:])
     # limpiar residuos ' - ' iniciales
     entry["empresa"] = re.sub(r"^[\s\-]+|[\s\-]+$", "", text)
+    # «Cargo - Empresa» en una sola linea, cuando el CV no trae linea de empresa aparte
+    if not entry["empresa"] and " - " in entry["cargo"]:
+        pieces = [p.strip() for p in re.split(r"\s+-\s+", entry["cargo"]) if p.strip()]
+        if len(pieces) >= 2 and norm(pieces[0]).split()[0] in ROLE_WORDS:
+            entry["cargo"], entry["empresa"] = pieces[0], " - ".join(pieces[1:])
 
 
 def _parse_experience(sec_text: str) -> List[dict]:
@@ -231,9 +251,16 @@ def _parse_experience(sec_text: str) -> List[dict]:
                 cur = _new_entry(); entries.append(cur)
             cur["bullets"].append(re.sub(r"^[•·\-*▪\d.)\s]+", "", line).strip())
         elif _is_company_or_date(line, low):
-            cur = _new_entry(); cur["empresa"] = line; entries.append(cur)
+            # Una linea que solo trae el periodo pertenece al empleo que se esta leyendo:
+            # abrir una entrada nueva desplazaria cargo, fechas y logros al siguiente empleo.
+            if _date_only(line) and cur is not None and not _has_dates(cur["empresa"]):
+                cur["empresa"] = (cur["empresa"] + " " + line).strip()
+            else:
+                cur = _new_entry(); cur["empresa"] = line; entries.append(cur)
         elif _is_role(line, low):
-            if cur is not None:
+            # Solo completa el bloque en curso si aun se esta armando su encabezado;
+            # si ya tiene cargo o ya recogio logros, este cargo abre el siguiente empleo.
+            if cur is not None and not cur["cargo"] and not cur["bullets"]:
                 cur["cargo"] = line
             else:
                 cur = _new_entry(); cur["cargo"] = line; entries.append(cur)
@@ -391,6 +418,9 @@ def parse_cv(text: str, filename: str = "", nombre_hint: str = "") -> CandidateP
         if any(v in low_s for v in ("experiencia", "educacion", "habilidades", "idiomas",
                                     "proyectos", "resumen", "perfil", "contacto", "logros")):
             continue
+        # La linea de contacto suele llevar «|»: no es un titular profesional.
+        if EMAIL_RE.search(s) or PHONE_RE.search(s) or re.search(r"(https?://|linkedin\.com|www\.)", low_s):
+            continue
         if s.isupper() or "|" in s:
             headline = s
             break
@@ -414,7 +444,10 @@ def parse_cv(text: str, filename: str = "", nombre_hint: str = "") -> CandidateP
     loc_low = norm(loc_text)
     for c in ["san isidro", "miraflores", "surco", "magdalena", "san miguel", "barranco",
               "santiago de surco", "la molina", "san borja", "monterrico", "cercado de lima",
-              "trujillo", "arequipa", "callao"]:
+              "los olivos", "san juan de lurigancho", "ate", "comas", "chorrillos", "jesus maria",
+              "pueblo libre", "lince", "breña", "rimac", "independencia", "villa el salvador",
+              "trujillo", "arequipa", "chiclayo", "piura", "cusco", "huancayo", "tacna", "iquitos",
+              "callao", "lima"]:
         if c in loc_low:
             location = c.title()
             break
