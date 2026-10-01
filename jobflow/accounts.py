@@ -164,6 +164,7 @@ def delete_profile(db: Session, row: CandidateProfileRow) -> dict:
     from . import portal_accounts as portals
     from .career import AgendaEvent, CVVersion, Preferences, Recruiter
     from .config import settings
+    from .feed import FeedJob
     from .google_integration import Delivery, GoogleConnection, ImportedMessage, OAuthState
     from .models import EmailEnviado, FormularioResuelto, GapAnalysis, PuestoObjetivo
     from .workflow import ApplicationDetail, AuditEvent
@@ -191,7 +192,7 @@ def delete_profile(db: Session, row: CandidateProfileRow) -> dict:
     if email_ids:
         gone(EmailMonitoreado, EmailMonitoreado.id.in_(email_ids))
     for model in (ImportedMessage, GoogleConnection, OAuthState, AgendaEvent, FormularioResuelto, GapAnalysis,
-                  PuestoObjetivo, ApplicationDetail, portals.AutoApplyRun, portals.PortalAccount, Preferences):
+                  PuestoObjetivo, ApplicationDetail, FeedJob, portals.AutoApplyRun, portals.PortalAccount, Preferences):
         gone(model, model.profile_id == pid)
     gone(Delivery, Delivery.key.like(f"digest:{pid}:%"))
     gone(Postulacion, Postulacion.profile_id == pid)
