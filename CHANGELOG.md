@@ -5,6 +5,22 @@ Todos los cambios del proyecto, con fecha y commit. El historial vivo está en:
 
 ---
 
+## 10-01 · Mejoras estéticas tras recorrer la app como usuario nuevo
+- **Pantalla de acceso dividida**: panel verde con la propuesta de valor (qué hace JobFlow y la
+  regla de no inventar) junto al formulario; en celular se apila. La primera visita abre en
+  «Crear cuenta» en vez de «Iniciar sesión».
+- **«Hoy»**: el primer indicador es «Nuevos para ti», destacado y enlazado al feed, en lugar de
+  tres ceros. El botón principal lleva a «Para ti».
+- **Textos en mayúsculas legibles**: títulos, empresas y nombres que llegan gritando
+  («ANALISTA DE FACTURACION Y COBRANZAS») se muestran en formato normal, sin tocar siglas
+  (S.A.C., E.I.R.L., SAP). Solo afecta a la presentación; los datos no cambian.
+- **Subir el CV**: zona para arrastrar o elegir el archivo, con nombre y tamaño al cargarlo,
+  en lugar del selector nativo que se cortaba.
+- **Tarjetas de postulaciones** con el mismo lenguaje que el feed: puntaje en píldora, estado
+  junto a la empresa y botones alineados abajo.
+
+---
+
 ## 09-16 · «Para ti»: feed diario de empleos del Perú
 - **Feed diario** (`jobflow/feed.py`): JobFlow recorre solo tus puestos objetivo en Bumeran,
   Computrabajo y LinkedIn, puntúa cada aviso, descarta lo incompatible y guarda lo nuevo. No
