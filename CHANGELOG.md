@@ -5,6 +5,23 @@ Todos los cambios del proyecto, con fecha y commit. El historial vivo está en:
 
 ---
 
+## 10-04 · Revisión de headhunter: auditoría ATS del CV frente al aviso
+- **`jobflow/headhunter.py`**: revisión estricta con el criterio de una headhunter senior. Ocho
+  criterios con peso y evidencia (puesto del aviso, palabras clave, años exigidos, fechas con mes,
+  logros con cifras, verbos de acción, contacto, extensión, relleno), veredicto en tres niveles
+  y las tres correcciones que más suben el puntaje. Los años exigidos son excluyentes: ningún
+  CV bien redactado los compensa.
+- **Pregunta en vez de inventar**: los términos del aviso que faltan y los logros sin cifra se
+  devuelven como preguntas a la candidata. Nada se añade al CV por cuenta propia.
+- **Redacción asistida opcional**: con un modelo configurado (`LLM_PROVIDER`, `LLM_API_KEY`)
+  propone cómo redactar cada logro. Cada propuesta se valida contra el CV y se descarta si trae
+  una cifra o una herramienta que no estaba. Sin modelo, la auditoría funciona igual.
+- En la pestaña «Mi CV» de cada candidatura: botón «Revisar con criterio ATS».
+- **El lector de CV conserva el mes** («Ene. 2023» en vez de «2023»): sin él no se podía
+  calcular la antigüedad, ni aquí ni en las respuestas de postulación.
+
+---
+
 ## 10-04 · Aplika: nombre nuevo, cursos para cerrar brechas y correcciones del examen
 - **El producto se llama Aplika** (antes JobFlow AI) en la portada, la aplicación y los mensajes.
   No cambian el paquete `jobflow`, las variables `JOBFLOW_*`, la cookie ni `Abrir_JobFlow.bat`.

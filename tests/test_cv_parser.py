@@ -33,11 +33,11 @@ def test_periodo_propio_no_desplaza_los_empleos():
     primero, segundo = p.experiencia
     assert primero["cargo"] == "Asistente de Cobranzas"
     assert primero["empresa"] == "Corporacion Andina SAC"
-    assert (primero["inicio"], primero["fin"]) == ("2023", "2024")
+    assert (primero["inicio"], primero["fin"]) == ("Ene. 2023", "Dic. 2024")   # con mes: sin él no hay antigüedad
     assert len(primero["bullets"]) == 3
     assert segundo["cargo"] == "Practicante de Contabilidad"
     assert segundo["empresa"] == "Estudio Contable Lima"
-    assert (segundo["inicio"], segundo["fin"]) == ("2022", "2022")
+    assert (segundo["inicio"], segundo["fin"]) == ("Mar. 2022", "Dic. 2022")
     assert len(segundo["bullets"]) == 1
 
 

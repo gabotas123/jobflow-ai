@@ -86,11 +86,13 @@ from .career import application as owned_application, router as career_router, r
 from .google_integration import router as google_router
 from .portal_accounts import router as portals_router
 from .feed import router as feed_router
+from .headhunter import router as headhunter_router
 app.include_router(accounts_router)
 app.include_router(career_router)
 app.include_router(google_router)
 app.include_router(portals_router)
 app.include_router(feed_router)
+app.include_router(headhunter_router)
 # Every /api route needs a Aplika session; HTTP Basic remains an optional outer guard.
 from .security import AccessMiddleware
 app.add_middleware(AccessMiddleware)

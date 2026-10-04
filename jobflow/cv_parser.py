@@ -52,9 +52,10 @@ LINKEDIN_RE = re.compile(r"(?:https?://)?(?:[a-z]{2,3}\.)?linkedin\.com/[^\s|)\]
 DNI_RE = re.compile(r"\bDNI\s*[:#]?\s*\d{6,10}\b", re.I)
 
 _MONTHS = "(?:ene|feb|mar|abr|may|jun|jul|ago|set|sep|oct|nov|dic|enero|febrero|marzo|abril|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)"
+# Los grupos 1 y 2 conservan el mes («Ene. 2023»): sin el, no se puede calcular la antiguedad.
 DATES_RE = re.compile(
-    rf"(?:{_MONTHS})\.?\s+((?:19|20)\d{{2}})\s*[-–]\s*"
-    rf"(?:(?:{_MONTHS})\.?\s+((?:19|20)\d{{2}})|(actualidad|presente|actual|hoy))",
+    rf"((?:{_MONTHS})\.?\s+(?:19|20)\d{{2}})\s*[-–]\s*"
+    rf"(?:((?:{_MONTHS})\.?\s+(?:19|20)\d{{2}})|(actualidad|presente|actual|hoy))",
     re.I,
 )
 YEARS_RE = re.compile(r"\b((?:19|20)\d{2})\s*[-–]\s*((?:19|20)\d{2})")
@@ -213,7 +214,8 @@ def _apply_dates(entry: dict) -> None:
     text = entry.get("empresa", "")
     m = DATES_RE.search(text)
     if m:
-        entry["inicio"], entry["fin"] = m.group(1), (m.group(2) or m.group(3) or "Actualidad")
+        entry["inicio"] = " ".join(m.group(1).split())
+        entry["fin"] = " ".join(m.group(2).split()) if m.group(2) else "Actualidad"
         text = text[:m.start()] + " " + text[m.end():]
     else:
         m2 = YEARS_RE.search(text)
