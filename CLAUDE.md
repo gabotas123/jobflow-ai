@@ -34,6 +34,7 @@ FastAPI + SQLAlchemy (SQLite) + SPA sin framework en `web/` (JS compacto en `app
 | `jobflow/autofill.py`, `answer_generator.py` | Mapeo de preguntas → hechos del perfil; respuestas solo con datos confirmados; aprobación humana. |
 | `jobflow/cv_answers.py` | Respuestas a preguntas de postulación deducidas del CV confirmado (experiencia sí/no con evidencia, años por fechas, niveles). |
 | `jobflow/headhunter.py` | Auditoría ATS estricta del CV frente a un aviso (`audit`), con veredicto, criterios y preguntas; redacción opcional con LLM (`rewrite`) validada por `_grounded`, que descarta cifras o herramientas ausentes del CV. No añade datos: pregunta. |
+| `jobflow/salaries.py` | Referencia de sueldos por puesto: lee la página de salarios de Computrabajo Perú (media, rango, empresas, puestos parecidos) y los avisos vigentes con sueldo publicado. Caché en memoria de 6 h. Depende del marcado de esa página: si cambia, `parse_salary_page` devuelve `{}` y la pantalla lo dice. |
 | `jobflow/learning.py` | Qué brechas se cierran estudiando (enlaces de búsqueda a cursos) y cuáles no (años, nivel, carrera). |
 | `jobflow/portal_accounts.py` | Cuentas de Bumeran/Computrabajo y postulación automática (ver abajo). |
 | `jobflow/google_integration.py` | OAuth Gmail/Calendar (requiere credenciales propias en el servidor). |

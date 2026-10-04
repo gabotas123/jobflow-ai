@@ -45,6 +45,7 @@
 <a href="#today" data-page="today"><span aria-hidden="true">◷</span>Hoy</a>
 <a href="#feed" data-page="feed"><span aria-hidden="true">✦</span>Para ti</a>
 <a href="#jobs" data-page="jobs"><span aria-hidden="true">⌕</span>Oportunidades</a>
+<a href="#salaries" data-page="salaries"><span aria-hidden="true">◈</span>Sueldos</a>
 <a href="#applications" data-page="applications"><span aria-hidden="true">▤</span>Postulaciones</a>
 <a href="#agenda" data-page="agenda"><span aria-hidden="true">▦</span>Agenda</a>
 <a href="#profile" data-page="profile"><span aria-hidden="true">◎</span>Mi perfil</a>
@@ -68,6 +69,12 @@
 <div class="mass-bar" data-mass-bar hidden><div role="status" aria-live="polite"><strong data-mass-count>0 vacantes seleccionadas</strong><p class="muted-note">Aplika lee cada aviso completo, descarta las incompatibles y postula de una en una.</p></div><div class="mass-controls"><label>Compatibilidad mínima<select data-mass-min><option value="0">Cualquiera</option><option value="40">40/100</option><option value="50" selected>50/100</option><option value="60">60/100</option><option value="70">70/100</option></select></label><button class="button secondary" data-mass-action="all" type="button">Seleccionar todas</button><button class="button secondary" data-mass-action="clear" type="button">Quitar selección</button><button class="button primary" data-mass-apply type="button">Postular en masa</button></div></div>
 <div id="feed-status" role="status" aria-live="polite"></div>
 <div id="feed-list" class="job-grid"></div>
+</section>
+<section data-view="salaries" hidden>
+<div class="page-heading"><div><p class="eyebrow">REFERENCIA DE SUELDOS · PERÚ</p><h1 id="sal-title">¿Cuánto se paga por tu puesto?</h1><p id="sal-subtitle">Promedios del mercado, lo que pagan las empresas que más contratan y lo que ofrecen los avisos de hoy.</p></div></div>
+<article class="panel"><form id="sal-form" class="search-row"><label>Tu puesto objetivo<select id="sal-role" name="puesto"></select></label><label>O consulta otro puesto<input id="sal-other" name="otro" maxlength="120" autocomplete="off" placeholder="Analista contable…"></label><button class="button primary">Ver sueldos</button></form></article>
+<div class="stats" id="sal-stats"></div>
+<div id="sal-body" aria-live="polite"></div>
 </section>
 <section data-view="profile" hidden>
 <div class="page-heading"><div><p class="eyebrow">PRIMERO, CONOZCÁMONOS</p><h1>Tu experiencia, bien contada.</h1><p>Confirma tu CV y dinos a qué puestos te gustaría postular.</p></div></div>

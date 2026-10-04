@@ -5,6 +5,19 @@ Todos los cambios del proyecto, con fecha y commit. El historial vivo está en:
 
 ---
 
+## 10-04 · Sueldos: referencia para tu expectativa salarial
+- **Pantalla «Sueldos»** (`jobflow/salaries.py`): para el puesto objetivo muestra el promedio del
+  mercado, el rango habitual y cuántos datos lo respaldan; lo que pagan las empresas que más
+  contratan ese puesto; los avisos vigentes que publican su sueldo, con enlace; y puestos parecidos.
+- **Dónde cae tu expectativa**: la compara con el promedio y el rango. Solo compara; no recomienda
+  una cifra.
+- **Fuentes reales y citadas**: la página de salarios de Computrabajo Perú (estimación del propio
+  portal, últimos 12 meses) y los avisos de hoy. Si el puesto no tiene datos, se dice. Los
+  promedios se guardan en memoria 6 horas para no repetir la consulta.
+- El lector de avisos de Computrabajo ahora conserva el sueldo mensual publicado.
+
+---
+
 ## 10-04 · Revisión de headhunter: auditoría ATS del CV frente al aviso
 - **`jobflow/headhunter.py`**: revisión estricta con el criterio de una headhunter senior. Ocho
   criterios con peso y evidencia (puesto del aviso, palabras clave, años exigidos, fechas con mes,

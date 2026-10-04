@@ -40,3 +40,7 @@ data/worker.lock
 
 # Enlaces simbolicos que crea "npx skills add" (se regeneran; las skills reales viven en .agents/skills)
 .claude/skills/
+
+# Otros proyectos y copias que viven en esta carpeta pero no son de este repositorio
+livora/
+/JobFlowAI/
