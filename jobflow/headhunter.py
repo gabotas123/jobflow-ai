@@ -71,6 +71,16 @@ def _words(text: str) -> list:
     return [w for w in found if len(w) > 2 and w not in STOP and not w.isdigit()]
 
 
+LEVEL_WORDS = {"practicante", "practicantes", "practicas", "profesional", "preprofesional", "pre", "trainee",
+               "junior", "senior", "semi", "asistente", "auxiliar", "analista", "especialista", "jefe", "gerente"}
+
+
+def role_words(title: str) -> list:
+    """La funcion del puesto: sin el nivel («practicante», «analista») ni la empresa tras « / » o « - »."""
+    core = re.split(r"\s+[/|–-]\s+|,\s+", title or "")[0]      # «… / DHL Express» o «…, Miraflores» no son la función
+    return [w for w in _words(core) if w not in LEVEL_WORDS]
+
+
 def job_keywords(title: str, description: str, tools=None, limit: int = 18) -> list:
     """Los terminos por los que un ATS filtraria este aviso: herramientas, titulo y lo que mas repite."""
     out, seen = [], set()
@@ -83,7 +93,7 @@ def job_keywords(title: str, description: str, tools=None, limit: int = 18) -> l
 
     for tool in tools or []:
         add(tool, "herramienta")
-    for word in _words(title):
+    for word in role_words(title):
         add(word, "puesto")
     words = _words(description)
     pairs = Counter(f"{a} {b}" for a, b in zip(words, words[1:]))
@@ -116,11 +126,11 @@ def audit(p: CandidateProfile, title: str, description: str = "", tools=None, ye
     checks, questions = [], []
 
     # 1 · el nombre del puesto: es lo primero que busca el filtro y quien recluta
-    title_words = _words(title)
+    title_words = role_words(title)
     hits = [w for w in title_words if w in text]
     ratio = len(hits) / len(title_words) if title_words else 0
-    checks.append(_check("El puesto del aviso aparece en tu CV", 18, ratio >= .99,
-                         f"{len(hits)} de {len(title_words)} palabras de «{title}» están en tu CV." if title_words else "El aviso no indica el puesto.",
+    checks.append(_check("El puesto del aviso aparece en tu CV", 18, ratio >= .99 or not title_words,
+                         f"{len(hits)} de {len(title_words)} palabras de la función ({', '.join(title_words)}) están en tu CV." if title_words else "El título del aviso no nombra una función concreta.",
                          "Si ya hiciste estas funciones, nómbralas con las palabras del aviso en tu titular o en el cargo. "
                          "No cambies un cargo que no tuviste.", partial=ratio if ratio >= .5 else None))
 

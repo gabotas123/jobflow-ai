@@ -62,6 +62,17 @@ DOMAINS = {
     "datos": ("reporting", "datos", "power bi", "business intelligence", "reportes"),
     "finanzas": ("finanzas", "financiero", "tesoreria", "conciliacion"),
     "operaciones": ("operacion", "incidencia", "operativo"),
+    # Otras areas: sin ellas, cualquier perfil que no fuera de finanzas puntuaba cero en lo funcional.
+    "contabilidad": ("contab", "contador", "tribut", "asiento"),
+    "legal": ("legal", "derecho", "abogad", "juridic", "contrato", "litig", "cumplimiento normativo", "compliance"),
+    "logistica": ("logistic", "almacen", "inventario", "distribucion", "despacho", "abastecimiento", "compras"),
+    "comercio_exterior": ("comercio exterior", "exportacion", "importacion", "aduana"),
+    "ventas": ("ventas", "comercial", "vendedor", "ejecutivo de cuentas"),
+    "atencion": ("atencion al cliente", "customer service", "servicio al cliente", "call center", "contact center"),
+    "recursos_humanos": ("recursos humanos", "rrhh", "reclutamiento", "seleccion de personal", "gestion humana", "talento"),
+    "marketing": ("marketing", "publicidad", "redes sociales", "contenido", "branding"),
+    "sistemas": ("sistemas", "software", "programador", "desarrollador", "soporte tecnico", "infraestructura"),
+    "administracion": ("administrativ", "administracion", "oficina", "recepcion"),
 }
 
 

@@ -5,6 +5,24 @@ Todos los cambios del proyecto, con fecha y commit. El historial vivo está en:
 
 ---
 
+## 10-04 · Prueba con un CV de plantilla a dos columnas (estudiante que busca prácticas)
+- **El lector entiende los CV de plantilla**: cabecera «Cargo | Empresa», descripción en párrafo y
+  la fecha al final. En esos PDF el texto sale por columnas y los empleos quedaban repartidos
+  (tres acababan dentro de «Habilidades»). Ahora se reconocen por su forma en todo el documento y
+  se ordenan del más reciente al más antiguo.
+- **El nombre** se elige por coincidencia con el nombre del archivo y, si no, por la línea que
+  parece un nombre; antes se tomaba el primer cargo.
+- **Habilidades una por línea** y «Excel, nivel intermedio» ya no crea una habilidad llamada «Nivel».
+- **Idiomas sin inventar**: fuera de la sección «Idiomas» un idioma solo cuenta si trae su nivel.
+  Antes, estudiar en un colegio «Peruano Japonés» registraba japonés.
+- **La compatibilidad ya no es solo de finanzas**: se añaden áreas legal, logística, comercio
+  exterior, ventas, atención al cliente, recursos humanos, marketing, sistemas, contabilidad y
+  administración.
+- **El auditor ATS mira la función del puesto**, no el nivel («practicante»), la empresa
+  («/ DHL Express») ni el distrito («, Miraflores»).
+
+---
+
 ## 10-04 · Sueldos: referencia para tu expectativa salarial
 - **Pantalla «Sueldos»** (`jobflow/salaries.py`): para el puesto objetivo muestra el promedio del
   mercado, el rango habitual y cuántos datos lo respaldan; lo que pagan las empresas que más

@@ -240,6 +240,61 @@ def _apply_dates(entry: dict) -> None:
             entry["cargo"], entry["empresa"] = pieces[0], " - ".join(pieces[1:])
 
 
+def _pipe_blocks(text: str):
+    """CV de plantilla: «Cargo | Empresa», un parrafo y la fecha al final de cada bloque.
+
+    En estos PDF el texto sale por columnas y los empleos quedan repartidos por todo el documento
+    (incluso dentro de «Habilidades»), asi que se buscan por su forma y no por la seccion.
+    Devuelve (experiencias, texto sin esos bloques) o None si el CV no usa este formato.
+    """
+    raw = [l.strip() for l in text.splitlines()]
+    lines, i = [], 0
+    while i < len(raw):                      # la cabecera partida en dos lineas se une
+        if raw[i].endswith("|") and i + 1 < len(raw) and raw[i + 1]:
+            lines.append(raw[i] + " " + raw[i + 1]); i += 2
+        else:
+            lines.append(raw[i]); i += 1
+
+    def candidate(line: str) -> bool:
+        return (" | " in line and not line.isupper() and not re.search(r"\([^)]*\|[^)]*\)", line)
+                and not EMAIL_RE.search(line) and not _date_only(line))
+
+    marks = {n for n, l in enumerate(lines) if candidate(l)}
+    found = []
+    for n in sorted(marks):
+        for j in range(n + 1, min(n + 9, len(lines))):
+            if j in marks or _header_of(lines[j]):
+                break
+            if _date_only(lines[j]):
+                found.append((n, j)); break
+    if len(found) < 2:
+        return None
+
+    used, entries, closed = set(), [], {-1}
+    for start, end in found:
+        header = lines[start]
+        # el cargo puede venir partido: «Especialista en Traduccion y Comunicacion» / «Internacional | G&L»
+        prev = lines[start - 1] if start else ""
+        before = lines[start - 2] if start > 1 else ""
+        if (prev and "|" not in prev and not _date_only(prev) and not _header_of(prev)
+                and prev[-1] not in ".,;:" and len(prev.split()) <= 8
+                and (start - 2 in closed or _header_of(before) or not before)):
+            header = prev + " " + header
+            used.add(start - 1)
+        cargo, empresa = (x.strip() for x in header.split(" | ", 1))
+        body = " ".join(l for l in lines[start + 1:end] if l)
+        entry = _new_entry()
+        entry["cargo"], entry["empresa"] = cargo, empresa + " " + lines[end]
+        entry["bullets"] = [b.strip() for b in re.split(r"(?<=[.!?])\s+", body) if b.strip()]
+        _apply_dates(entry)
+        entry["cargo"] = cargo                 # _apply_dates no debe reinterpretar la cabecera
+        entries.append(entry)
+        used.update(range(start, end + 1))
+        closed.add(end)
+    rest = "\n".join(l for n, l in enumerate(lines) if n not in used)
+    return entries, rest
+
+
 def _parse_experience(sec_text: str) -> List[dict]:
     entries: List[dict] = []
     cur: Optional[dict] = None
@@ -306,7 +361,7 @@ def _merge_logros(experiencia: List[dict], logros_text: str) -> None:
 # --------------------------------------------------------------------------- #
 #  Habilidades / idiomas ('Skill - Nivel X' o listas)
 # --------------------------------------------------------------------------- #
-def _parse_named_lines(section_text: str) -> dict:
+def _parse_named_lines(section_text: str, plain: bool = False) -> dict:
     out: dict = {}
     for raw in section_text.splitlines():
         line = raw.strip().strip("-•·*").strip()
@@ -326,8 +381,14 @@ def _parse_named_lines(section_text: str) -> dict:
             continue
         parts = [p.strip() for p in re.split(r"[,\|/]", line) if len(p.strip()) > 2]
         if len(parts) > 1:
+            last = None
             for p in parts:
                 pk = norm(p)
+                only_level = re.fullmatch(r"(?:nivel\s+)?(basico|intermedio|avanzado|nativo|fluido)", pk)
+                if only_level and last:           # «Microsoft Excel, nivel intermedio»
+                    out[last] = (out[last][0], only_level.group(1))
+                    continue
+                last = pk
                 mkl = re.search(r"(basico|intermedio|avanzado|nativo|fluido)\s*$", pk)
                 if mkl:
                     lvl = mkl.group(1)
@@ -335,12 +396,16 @@ def _parse_named_lines(section_text: str) -> dict:
                     out[norm(p)] = (p, lvl)
                 else:
                     out[pk] = (p, "")
+                last = norm(p) if mkl else pk
+        elif plain and len(line.split()) <= 7 and not re.search(r"[:@\d|()]", line) and not line.isupper():
+            out[norm(line)] = (line, "")        # una habilidad por linea, sin nivel
     return out
 
 
 def parse_skills(sections: dict, text_low: str) -> List[tuple]:
-    hab = sections.get("habilidades", "") + "\n" + sections.get("cursos", "")
-    items = _parse_named_lines(hab)
+    # Solo en «Habilidades» vale una habilidad por linea; en «Cursos» esas lineas son titulos partidos.
+    items = _parse_named_lines(sections.get("habilidades", ""), plain=True)
+    items.update(_parse_named_lines(sections.get("cursos", "")))
     for s in KNOWN_SKILLS:
         pat = re.escape(s)
         if s in text_low or re.search(rf"\b{pat}\b", text_low):
@@ -351,7 +416,7 @@ def parse_skills(sections: dict, text_low: str) -> List[tuple]:
     for key, (name, level) in items.items():
         low_key = norm(key)
         norm_name = norm(name)
-        if norm_name in seen:
+        if norm_name in seen or norm_name.startswith(("curso ", "diplomatura", "diplomado")):
             continue
         seen.add(norm_name)
         if not level:
@@ -372,10 +437,15 @@ def parse_languages(sections: dict, text_low: str) -> dict:
                 out[canon] = level or ""
                 break
     if not out:
+        # Sin seccion de idiomas solo cuenta el idioma que viene con su nivel («Inglés avanzado»).
+        # La palabra suelta no basta: «Colegio Peruano Japonés» no significa que hable japonés.
+        listed = norm(idiomas)
         for lname, canon in LANG_NAMES.items():
-            if norm(lname) in text_low:
-                m = re.search(re.escape(norm(lname)) + r"[^\n]{0,30}(basico|intermedio|avanzado|nativo)", text_low)
-                out[canon] = m.group(1).capitalize() if m else ""
+            m = re.search(rf"\b{re.escape(norm(lname))}\b[^\n]{{0,30}}?\b(basico|intermedio|avanzado|nativo)\b", text_low)
+            if m:
+                out[canon] = m.group(1).capitalize()
+            elif re.search(rf"\b{re.escape(norm(lname))}\b", listed):
+                out.setdefault(canon, "")      # nombrado en la seccion «Idiomas», sin nivel: no se supone ninguno
     return out
 
 
@@ -389,6 +459,10 @@ _HEADER_LOW_WORDS = ("experiencia", "educacion", "habilidades", "idiomas", "proy
 
 def parse_cv(text: str, filename: str = "", nombre_hint: str = "") -> CandidateProfile:
     text = _clean(text or "")
+    full_low = norm(text)                     # las herramientas se buscan en todo el CV, empleos incluidos
+    blocks = _pipe_blocks(text)
+    if blocks:
+        text = blocks[1]                      # el resto del CV se lee sin los empleos ya reconocidos
     sections = _split_sections(text)
     text_low = norm(text)
 
@@ -402,13 +476,25 @@ def parse_cv(text: str, filename: str = "", nombre_hint: str = "") -> CandidateP
     # --- nombre ---
     name = nombre_hint or ""
     if not name:
+        candidates = []
         for line in text.splitlines():
             s = line.strip()
             if 4 <= len(s) <= 60 and re.fullmatch(r"[A-Za-zÁÉÍÓÚÑáéíóúñ .'\-]+", s):
-                low_s = norm(s)
-                if not any(v in low_s for v in _HEADER_LOW_WORDS):
-                    name = s
-                    break
+                if not any(v in norm(s) for v in _HEADER_LOW_WORDS):
+                    candidates.append(s)
+        # a) la linea que mas coincide con el nombre del archivo («CV - Kimi Yi Kudaka 2026.pdf»)
+        tokens = {t for t in re.findall(r"[a-z]{2,}", norm(filename.rsplit(".", 1)[0]))
+                  if t not in ("cv", "curriculum", "vitae", "resume", "hoja", "vida", "copia", "final", "pdf", "docx")}
+        scored = [(len(tokens & set(norm(c).split())), c) for c in candidates]
+        best = max(scored, default=(0, ""))
+        if best[0] >= 2:
+            name = best[1]
+        else:
+            # b) una linea que parezca nombre: de 2 a 5 palabras, todas con mayuscula, y que no sea un cargo
+            proper = [c for c in candidates if 2 <= len(c.split()) <= 5
+                      and all(w[0].isupper() or norm(w) in ("de", "del", "la", "los") for w in c.split())
+                      and norm(c).split()[0] not in ROLE_WORDS]
+            name = (proper or candidates or [""])[0]
 
     # --- headline (saltar la linea del nombre y headers de seccion) ---
     headline = ""
@@ -431,14 +517,23 @@ def parse_cv(text: str, filename: str = "", nombre_hint: str = "") -> CandidateP
     exp_sec = sections.get("experiencia", "")
     # A missing experience section must not turn projects into employment.
     experiencia = _parse_experience(exp_sec)
+    orphan_summary = ""
+    if blocks:
+        # Lo que queda en «Experiencia» tras sacar los bloques es el parrafo de presentacion.
+        orphan_summary = " ".join(l.strip() for l in exp_sec.splitlines()
+                                  if len(l.strip()) > 50 or l.strip().endswith("."))
+        # En dos columnas los empleos salen en el orden de la pagina; se ordenan del mas reciente al mas antiguo.
+        from .cv_answers import parse_month
+        experiencia = sorted(blocks[0], key=lambda e: (parse_month(e["fin"]) or (0, 0), parse_month(e["inicio"]) or (0, 0)),
+                             reverse=True)
     # Standalone achievements require attribution to an employer by the candidate.
 
     # --- habilidades / idiomas / educacion / proyectos ---
-    skills = parse_skills(sections, text_low)
+    skills = parse_skills(sections, full_low)
     languages = parse_languages(sections, text_low)
     educacion = [l.strip() for l in sections.get("educacion", "").splitlines() if len(l.strip()) > 4]
     proyectos = [l.strip() for l in sections.get("proyectos", "").splitlines() if len(l.strip()) > 4]
-    summary = " ".join(sections.get("resumen", "").split())
+    summary = " ".join(sections.get("resumen", "").split()) or " ".join(orphan_summary.split())
 
     # --- ubicacion (sin contar la linea del nombre) ---
     location = ""

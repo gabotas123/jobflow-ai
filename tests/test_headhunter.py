@@ -4,7 +4,7 @@ os.environ.setdefault('DATABASE_URL','sqlite:///'+tempfile.mkdtemp()+'/headhunte
 import pytest
 from fastapi.testclient import TestClient
 from jobflow.cv_parser import parse_cv
-from jobflow.headhunter import audit, _grounded, rewrite
+from jobflow.headhunter import audit, _grounded, rewrite, role_words
 from jobflow.main import app
 from conftest import sign_in
 
@@ -83,3 +83,9 @@ def test_la_revision_es_privada_y_usa_la_candidatura():
         with TestClient(app) as otro:
             otro.post('/api/auth/register',json={'username':'intruso-hh','password':'otra-clave-123','nombre':'Intruso'})
             assert otro.get(f'/api/headhunter/applications/{aid}').status_code==404
+
+def test_del_titulo_solo_cuenta_la_funcion():
+    assert role_words('Practicante Profesional Legal / DHL Express')==['legal']
+    assert role_words('Practicante Profesional Comercial, Miraflores')==['comercial']
+    assert role_words('Analista de Cobranzas')==['cobranzas']
+    assert role_words('Practicante Profesional de Cumplimiento (Legal)')==['cumplimiento','legal']
