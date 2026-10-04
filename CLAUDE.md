@@ -21,7 +21,8 @@ FastAPI + SQLAlchemy (SQLite) + SPA sin framework en `web/` (JS compacto en `app
 
 | Módulo | Qué hace |
 |---|---|
-| `jobflow/main.py` | App, rutas de perfiles, CV, búsqueda, importación, seguimiento. Incluye routers de `accounts`, `career`, `google_integration`, `portal_accounts`. |
+| `jobflow/main.py` | App, rutas de perfiles, CV, búsqueda, importación, seguimiento. Incluye routers de `accounts`, `career`, `google_integration`, `portal_accounts`, `feed`. Sirve la web: `/` es la portada (`web/landing.html`) sin sesión y la aplicación (`web/index.html`) con sesión; `/app` es siempre la aplicación e `/inicio` siempre la portada. |
+| `web/landing.html`, `landing.css` | Portada pública: 12 franjas (cabecera, portada, portales, producto en dos pestañas, conexiones, calculadora, cifras, reglas, misión, preguntas, cierre, pie). Mismos tokens que la app. **No lleva testimonios ni logos de clientes porque no existen**: no añadirlos hasta que sean reales. |
 | `jobflow/accounts.py` | Cuentas de JobFlow: registro/login/logout (`/api/auth/*`), sesiones (`app_sessions`, cookie `jobflow_session`), migración de columnas y reclamo de perfiles anteriores (`/api/account/*`). `AccessMiddleware` exige sesión en `/api` y fija `CURRENT_USER`. |
 | `jobflow/cv_parser.py`, `cv_generator.py` | Lectura de CV (PDF/DOCX/TXT) y generación LaTeX/DOCX. |
 | `jobflow/career.py` | Confirmación del perfil (hash), objetivos, CV adaptado y versionado por candidatura, reclutadores, agenda, resumen diario. |

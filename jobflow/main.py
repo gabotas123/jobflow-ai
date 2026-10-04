@@ -19,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -129,8 +129,23 @@ def _candidate(db: Session, profile_id: Optional[int] = None):
 #  Web
 # --------------------------------------------------------------------------- #
 @app.get("/", include_in_schema=False)
-def index():
+def index(request: Request):
+    """Con sesión iniciada, la aplicación; sin sesión, la portada pública."""
+    from .accounts import COOKIE, session_user_id
+    signed_in = session_user_id(request.cookies.get(COOKIE, ""))
+    return FileResponse(str(WEB_DIR / ("index.html" if signed_in else "landing.html")))
+
+
+@app.get("/app", include_in_schema=False)
+def app_shell():
+    """La aplicación siempre: desde la portada se llega aquí para entrar o crear la cuenta."""
     return FileResponse(str(WEB_DIR / "index.html"))
+
+
+@app.get("/inicio", include_in_schema=False)
+def landing():
+    """La portada siempre, también con sesión iniciada (para enseñarla o compartirla)."""
+    return FileResponse(str(WEB_DIR / "landing.html"))
 
 
 # --------------------------------------------------------------------------- #

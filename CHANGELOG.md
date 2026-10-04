@@ -5,6 +5,20 @@ Todos los cambios del proyecto, con fecha y commit. El historial vivo está en:
 
 ---
 
+## 10-04 · Portada pública
+- **`web/landing.html`**: página de presentación con la estructura de una portada de producto:
+  cabecera fija, portada con la app a la vista, portales compatibles, producto en dos pestañas
+  («Encuentra» y «Postula», cuatro funciones cada una), conexiones, calculadora de tiempo
+  ahorrado, cifras, las tres reglas del producto, misión, preguntas por tema, cierre y pie.
+- **Rutas**: `/` muestra la portada a quien no tiene sesión y la aplicación a quien sí;
+  `/app` abre siempre la aplicación; `/inicio` muestra siempre la portada.
+- **Sin testimonios ni logos de clientes**: esas dos franjas se cubren con lo que sí es cierto
+  (portales compatibles y reglas que el producto no rompe). Las cifras son medidas o límites
+  reales del sistema.
+- Icono de pestaña para la portada y la aplicación.
+
+---
+
 ## 10-01 · Mejoras estéticas tras recorrer la app como usuario nuevo
 - **Pantalla de acceso dividida**: panel verde con la propuesta de valor (qué hace JobFlow y la
   regla de no inventar) junto al formulario; en celular se apila. La primera visita abre en
