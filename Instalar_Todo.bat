@@ -1,7 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title JobFlow AI - Instalacion automatica
+title Aplika - Instalacion automatica
 
 echo ============================================================
 echo   JOBFLOW AI - INSTALACION AUTOMATICA (un solo clic)

@@ -46,3 +46,7 @@ dialog{border:1px solid var(--line);border-radius:16px;padding:0;max-width:560px
 .app-card{display:flex;flex-direction:column}.app-card .company{display:flex;align-items:center;gap:8px;min-width:0;margin-bottom:4px;overflow-wrap:anywhere}.app-card .company .badge{flex-shrink:0;white-space:nowrap;padding:1px 7px}.app-card .feed-title h3{margin:0}.app-card .actions{margin-top:auto}
 /* «Hoy»: el indicador que importa va primero y destacado */
 a.stat:hover{text-decoration:none;border-color:var(--primary)}.stat.lead{background:var(--primary);border-color:var(--primary);color:var(--on-primary)}.stat.lead span,.stat.lead p{color:var(--on-primary);opacity:.86}
+
+/* brechas: qué se cierra estudiando y qué no */
+.learn{margin:0 0 12px;border:1px solid var(--line);border-radius:12px;padding:0 14px;background:var(--bg)}.learn summary{min-height:44px;display:flex;align-items:center;font-size:13px;font-weight:600;padding:0}.learn-skill{padding:10px 0;border-top:1px solid var(--line)}.learn-skill strong{font-size:13px}.learn-skill p{display:flex;flex-wrap:wrap;gap:6px 14px;margin:4px 0 0;font-size:13px}.learn-fixed{border-top:1px solid var(--line);padding:10px 0;margin:0;font-size:13px}.learn-fixed strong{display:block;color:var(--warning)}.learn .muted-note{padding:10px 0;margin:0;border-top:1px solid var(--line)}
+.page-heading>.button{white-space:nowrap;flex-shrink:0;max-width:none}

@@ -3,6 +3,8 @@ import tempfile
 
 # The shared test account creates many profiles; test_accounts checks the real limit.
 os.environ.setdefault('JOBFLOW_MAX_PROFILES', '1000')
+# Las pruebas repiten la busqueda del feed sin esperar; la pausa real se prueba aparte.
+os.environ.setdefault('JOBFLOW_FEED_COOLDOWN', '0')
 # Several tests use the demo profile, which is no longer created by default.
 os.environ.setdefault('JOBFLOW_SEED_DEMO', 'true')
 # Evidence files and browser profiles must never land in the real data/ folder.

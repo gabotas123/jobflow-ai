@@ -1,4 +1,4 @@
-"""Modelo de datos completo de JobFlow AI (ver documento tecnico, seccion 4)."""
+"""Modelo de datos completo de Aplika (ver documento tecnico, seccion 4)."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -16,7 +16,7 @@ class Usuario(Base):
     id = Column(Integer, primary_key=True)
     nombre = Column(String, nullable=False)
     email = Column(String, unique=True)
-    username = Column(String)                   # acceso a JobFlow (índice único en accounts.migrate)
+    username = Column(String)                   # acceso a Aplika (índice único en accounts.migrate)
     password_hash = Column(String, default="")  # scrypt; vacío = usuario anterior a las cuentas
     ubicacion = Column(String, default="")
     oauth_tokens = Column(Text, default="")  # tokens OAuth cifrados (validar en MVP)

@@ -1,7 +1,7 @@
-"""Feed diario de empleos del Peru: JobFlow busca solo, puntua y guarda lo nuevo.
+"""Feed diario de empleos del Peru: Aplika busca solo, puntua y guarda lo nuevo.
 
 Es el equivalente peruano al feed de recomendaciones de los agentes de empleo
-de EE.UU.: en vez de que el usuario dispare una busqueda, JobFlow recorre cada
+de EE.UU.: en vez de que el usuario dispare una busqueda, Aplika recorre cada
 dia sus puestos objetivo en Bumeran, Computrabajo y LinkedIn, descarta lo que ya
 vio o ya postulo, y deja una lista puntuada lista para postular en masa.
 
@@ -10,7 +10,8 @@ el que se calculo su compatibilidad.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import os
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote_plus
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -21,6 +22,7 @@ from sqlalchemy.orm import Session
 from .career import prefs, profile_row, require_ready
 from .db import get_db
 from .job_search import search
+from .learning import plan as learning_plan
 from .models import Base, CandidateProfileRow, Postulacion, PuestoObjetivo, Vacante
 from .seed import profile_from_row
 from .workflow import norm, register, safe_url
@@ -31,6 +33,7 @@ AUTO_PORTALS = ('bumeran', 'computrabajo', 'linkedin')
 MAX_TITLES = 3      # puestos objetivo por actualizacion (cada uno son 3 llamadas a portales)
 KEEP_DAYS = 21      # el feed olvida los avisos viejos
 PER_QUERY = 12      # avisos guardados por puesto y portal
+COOLDOWN = int(os.getenv('JOBFLOW_FEED_COOLDOWN', '90'))   # segundos entre busquedas a pedido
 
 
 class FeedJob(Base):
@@ -125,7 +128,7 @@ def refresh(db, pid: int, platforms=AUTO_PORTALS) -> dict:
 
 def referral(row: FeedJob, profile) -> dict:
     """Como llegar a alguien de la empresa. Solo enlaces de busqueda y un mensaje redactado:
-    JobFlow no lee ni guarda datos de terceros."""
+    Aplika no lee ni guarda datos de terceros."""
     company = (row.empresa or '').strip()
     if not company:
         return {}
@@ -166,6 +169,7 @@ def item(row: FeedJob, profile=None) -> dict:
         'brechas': (analysis.get('brechas') or [])[:4],
         'pendientes': (analysis.get('datos_pendientes') or [])[:4],
         'referidos': referral(row, profile) if profile is not None else {},
+        'aprendizaje': learning_plan(analysis),
     }
 
 
@@ -192,7 +196,20 @@ def listing(pid: int, estado: str = 'activos', min_score: int = 0, db: Session =
 
 @router.post('/{pid}/actualizar')
 def update(pid: int, db: Session = Depends(get_db)):
-    return refresh(db, pid)
+    """Busqueda a pedido, con una pausa minima: repetirla sin parar haria que los portales bloqueen la IP."""
+    require_ready(db, pid)
+    row, now = prefs(db, pid), datetime.now(timezone.utc)
+    try:
+        elapsed = (now - datetime.fromisoformat((row.data or {}).get('feed_last_refresh', ''))).total_seconds()
+    except (ValueError, TypeError):
+        elapsed = COOLDOWN
+    if elapsed < COOLDOWN:
+        raise HTTPException(429, f'Acabas de buscar. Vuelve a intentarlo en {int(COOLDOWN - elapsed) + 1} segundos.')
+    result = refresh(db, pid)
+    row = prefs(db, pid)
+    row.data = {**(row.data or {}), 'feed_last_refresh': now.isoformat(), 'feed_last_new': result['nuevos']}
+    db.commit()
+    return result
 
 
 class Ids(BaseModel):

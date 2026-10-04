@@ -1,6 +1,6 @@
 """Punto de entrada: `python -m jobflow`.
 
-Arranca la API y abre el navegador en la web de JobFlow AI.
+Arranca la API y abre el navegador en la web de Aplika.
 Elige automaticamente un puerto libre (8000, 8001, ...) para que NUNCA
 falle por "puerto en uso" y muestra la URL correcta.
 """
@@ -18,7 +18,7 @@ from .config import settings
 
 
 def _stop_previous_instances() -> int:
-    """Cierra otras ventanas de JobFlow abiertas: con varias a la vez, cada una tomaba
+    """Cierra otras ventanas de Aplika abiertas: con varias a la vez, cada una tomaba
     postulaciones de la misma cola con su propia versión del código."""
     if os.name != "nt":
         return 0
@@ -56,15 +56,17 @@ def _open_browser(url: str) -> None:
 def main() -> None:
     closed = _stop_previous_instances()
     if closed:
-        print(f"  Se cerraron {closed} procesos de JobFlow abiertos antes: queda solo esta versión.")
+        print(f"  Se cerraron {closed} procesos de Aplika abiertos antes: queda solo esta versión.")
     port = _find_free_port() or settings.port
     url = f"http://127.0.0.1:{port}/"
     print("=" * 60)
-    print("  JobFlow AI")
+    print("  Aplika")
     print(f"  Abriendo tu navegador en:  {url}")
     print("  (cierra esta ventana para detener la app)")
     print("=" * 60)
     threading.Timer(3.0, _open_browser, args=(url,)).start()
+    # En la computadora del usuario el planificador va encendido: es quien refresca «Para ti» cada dia.
+    os.environ.setdefault("JOBFLOW_SCHEDULER", "true")
     uvicorn.run("jobflow.main:app", host="127.0.0.1", port=port, reload=False)
 
 

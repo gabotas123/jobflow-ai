@@ -1,8 +1,8 @@
-"""Cuentas de JobFlow: usuario y contraseña propios de la app, con sesiones independientes.
+"""Cuentas de Aplika: usuario y contraseña propios de la app, con sesiones independientes.
 
 No confundir con las cuentas de los portales (portal_accounts.py): de esos portales
-JobFlow nunca pide ni guarda contraseñas. Aquí solo se guarda un hash scrypt de la
-contraseña con la que cada persona entra a JobFlow.
+Aplika nunca pide ni guarda contraseñas. Aquí solo se guarda un hash scrypt de la
+contraseña con la que cada persona entra a Aplika.
 """
 from __future__ import annotations
 

@@ -1,4 +1,6 @@
-# JobFlow AI — guía para continuar el proyecto
+# Aplika — guía para continuar el proyecto
+
+> **Nombre:** el producto se llama **Aplika** desde el 04-10-2026 (antes «JobFlow AI»). Solo cambió lo que ve el usuario. Siguen llamándose `jobflow` el paquete de Python, el repositorio, las variables `JOBFLOW_*`, la cookie `jobflow_session` y el lanzador `Abrir_JobFlow.bat`: renombrarlos rompería instalaciones y sesiones.
 
 Proyecto para la Universidad de Lima: un **sistema de decisión y automatización asistida** que busca vacantes, evalúa el encaje con un perfil verificado, adapta el CV, prepara respuestas, postula con autorización y audita todo. **No es un bot de postulación masiva**: nunca inventa experiencia ni datos.
 
@@ -11,7 +13,7 @@ Estado: **v0.6.1** en `main` (github.com/gabotas123/jobflow-ai), desplegada en R
 3. Nunca reenviar automáticamente un envío incierto: queda `intento_no_confirmado` hasta que el candidato confirme que no figura.
 4. No resolver CAPTCHA, pruebas ni videos; no aceptar términos ni responder preguntas sensibles (DNI, salud…) por el candidato.
 5. Sin duplicados: huella por URL normalizada + posible duplicado entre portales (empresa/puesto/ubicación) que requiere revisión.
-6. Nunca guardar ni pedir contraseñas de portales. Las cuentas de portales se conectan con inicio de sesión personal en el navegador. (La contraseña de la **cuenta de JobFlow** sí existe, pero solo como hash scrypt en `usuarios.password_hash`.)
+6. Nunca guardar ni pedir contraseñas de portales. Las cuentas de portales se conectan con inicio de sesión personal en el navegador. (La contraseña de la **cuenta de Aplika** sí existe, pero solo como hash scrypt en `usuarios.password_hash`.)
 7. Indeed no se automatiza (bloquea el acceso). LinkedIn sí («Solicitud sencilla»), pero solo tras aceptar explícitamente el riesgo para la cuenta, con límite diario bajo (`JOBFLOW_LINKEDIN_DAILY_LIMIT`, 8).
 8. Las preguntas se responden con evidencia del CV confirmado (`cv_answers.py`): «Sí» citando la función real, años calculados con fechas mes/año. Nunca «No» ni supuestos; sin evidencia queda pendiente para el candidato.
 
@@ -23,7 +25,7 @@ FastAPI + SQLAlchemy (SQLite) + SPA sin framework en `web/` (JS compacto en `app
 |---|---|
 | `jobflow/main.py` | App, rutas de perfiles, CV, búsqueda, importación, seguimiento. Incluye routers de `accounts`, `career`, `google_integration`, `portal_accounts`, `feed`. Sirve la web: `/` es la portada (`web/landing.html`) sin sesión y la aplicación (`web/index.html`) con sesión; `/app` es siempre la aplicación e `/inicio` siempre la portada. |
 | `web/landing.html`, `landing.css` | Portada pública: 12 franjas (cabecera, portada, portales, producto en dos pestañas, conexiones, calculadora, cifras, reglas, misión, preguntas, cierre, pie). Mismos tokens que la app. **No lleva testimonios ni logos de clientes porque no existen**: no añadirlos hasta que sean reales. |
-| `jobflow/accounts.py` | Cuentas de JobFlow: registro/login/logout (`/api/auth/*`), sesiones (`app_sessions`, cookie `jobflow_session`), migración de columnas y reclamo de perfiles anteriores (`/api/account/*`). `AccessMiddleware` exige sesión en `/api` y fija `CURRENT_USER`. |
+| `jobflow/accounts.py` | Cuentas de Aplika: registro/login/logout (`/api/auth/*`), sesiones (`app_sessions`, cookie `jobflow_session`), migración de columnas y reclamo de perfiles anteriores (`/api/account/*`). `AccessMiddleware` exige sesión en `/api` y fija `CURRENT_USER`. |
 | `jobflow/cv_parser.py`, `cv_generator.py` | Lectura de CV (PDF/DOCX/TXT) y generación LaTeX/DOCX. |
 | `jobflow/career.py` | Confirmación del perfil (hash), objetivos, CV adaptado y versionado por candidatura, reclutadores, agenda, resumen diario. |
 | `jobflow/workflow.py` | `evaluate(profile, job, level)` (puntaje 0–100 con criterios desconocidos = 0 y exclusiones; `level` es el nivel de los objetivos, ver `LEVELS`/`title_levels`), `register()` con deduplicación y auditoría (`AuditEvent`). |

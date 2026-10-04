@@ -24,7 +24,7 @@ class AccessMiddleware(BaseHTTPMiddleware):
                 valid = False
             if not valid:
                 return Response("Acceso privado", status_code=401,
-                                headers={"WWW-Authenticate": 'Basic realm="JobFlow", charset="UTF-8"'})
+                                headers={"WWW-Authenticate": 'Basic realm="Aplika", charset="UTF-8"'})
         # Cross-site writes are never authorized by a previously cached Basic login or session cookie.
         if request.method not in ("GET", "HEAD", "OPTIONS"):
             origin = request.headers.get("origin")
@@ -41,7 +41,9 @@ class AccessMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
         finally:
             CURRENT_USER.reset(token)
-        response.headers["Cache-Control"] = "no-store"
+        # Los datos nunca se guardan en cache; los archivos de la interfaz se revalidan con su ETag
+        # (304 si no cambiaron) en vez de descargarse enteros en cada visita.
+        response.headers["Cache-Control"] = "no-cache" if request.url.path.startswith("/assets/") else "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
         response.headers["X-Frame-Options"] = "SAMEORIGIN"

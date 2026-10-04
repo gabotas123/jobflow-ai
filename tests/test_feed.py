@@ -117,3 +117,22 @@ def test_feed_is_private_to_its_account(client,fake_search):
         other.post('/api/auth/register',json={'username':'intruso-feed','password':'otra-clave-123','nombre':'Intruso'})
         assert other.get(f'/api/feed/{pid}').status_code==404
         assert other.post(f'/api/feed/{pid}/actualizar').status_code==404
+
+def test_la_busqueda_a_pedido_tiene_pausa(client,fake_search,monkeypatch):
+    pid=candidate(client);ready(client,pid)
+    monkeypatch.setattr('jobflow.feed.COOLDOWN',90)
+    assert client.post(f'/api/feed/{pid}/actualizar').status_code==200
+    r=client.post(f'/api/feed/{pid}/actualizar')
+    assert r.status_code==429 and 'segundos' in r.json()['detail']
+
+def test_los_avisos_traen_donde_aprender_lo_que_falta(client,monkeypatch):
+    def fake(profile,platform,query,location='',level=None):
+        out=listing(platform,1)
+        out['resultados'][0]['analisis']['brechas']=['Herramienta por verificar: Power BI']
+        return out
+    monkeypatch.setattr('jobflow.feed.search',fake)
+    pid=candidate(client);ready(client,pid)
+    client.post(f'/api/feed/{pid}/actualizar')
+    plan=client.get(f'/api/feed/{pid}').json()['items'][0]['aprendizaje']
+    assert plan['habilidades'][0]['habilidad']=='Power BI'
+    assert plan['habilidades'][0]['cursos'][0]['plataforma']=='Microsoft Learn'

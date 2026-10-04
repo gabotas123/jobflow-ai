@@ -30,7 +30,7 @@ exit /b 1
 echo Python listo.
 if exist ".venv\Scripts\python.exe" goto reutilizar
 
-echo [JobFlow AI] Primer uso: instalando todo (1-5 min, espera)...
+echo [Aplika] Primer uso: instalando todo (1-5 min, espera)...
 %PY% -m venv .venv
 if not exist ".venv\Scripts\python.exe" goto venv_error
 ".venv\Scripts\python.exe" -m pip install -q --disable-pip-version-check -r requirements.txt
@@ -48,7 +48,7 @@ echo Entorno listo (reutilizado).
 :listo
 echo.
 echo ============================================================
-echo   JobFlow AI - Arrancando... EN UNOS SEGUNDOS SE ABRIRA EL
+echo   Aplika - Arrancando... EN UNOS SEGUNDOS SE ABRIRA EL
 echo   NAVEGADOR CON LA APP. Cierra esta ventana para detener.
 echo ============================================================
 echo.

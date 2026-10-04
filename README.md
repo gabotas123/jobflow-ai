@@ -1,8 +1,8 @@
-# JobFlow AI · versión 0.5
+# Aplika · versión 0.5
 
 Nuevo espacio de búsqueda con perfil confirmado, objetivos explícitos, CV por candidatura, agenda y conexiones Google configurables. Lee [CAMBIOS_V05.md](CAMBIOS_V05.md) para instalar y conocer el alcance real.
 
-# JobFlow AI 0.4 — copiloto asistido
+# Aplika 0.4 — copiloto asistido
 
 **Estado actual:** carga y generación de CV, evaluación de ofertas pegadas, preparación revisada de respuestas, seguimiento con evidencia y clasificación manual de correos. El envío a ATS y la lectura automática de correo NO están implementados.
 
@@ -10,7 +10,7 @@ Lee [CAMBIOS_V04.md](CAMBIOS_V04.md) para conocer los cambios, pruebas y límite
 
 ## Probar desde iPhone
 
-Una vez subida esta versión a GitHub: **Code → Codespaces → Create codespace**. La configuración incluida instala y arranca JobFlow automáticamente. Abre el puerto **8000** desde **Ports**, con visibilidad **Private**. La preparación inicial requiere unos minutos. El entorno debe permanecer activo mientras usas la aplicación. Detenerlo al terminar evita consumo innecesario de la cuota de Codespaces.
+Una vez subida esta versión a GitHub: **Code → Codespaces → Create codespace**. La configuración incluida instala y arranca Aplika automáticamente. Abre el puerto **8000** desde **Ports**, con visibilidad **Private**. La preparación inicial requiere unos minutos. El entorno debe permanecer activo mientras usas la aplicación. Detenerlo al terminar evita consumo innecesario de la cuota de Codespaces.
 
 ## Ejecutar localmente
 
@@ -37,7 +37,7 @@ Se incluye un Dockerfile y una configuración Render con disco persistente de pa
 
 <details><summary>Documentación histórica de la versión 0.3 (puede describir demos o funciones pendientes)</summary>
 
-# JobFlow AI · Copiloto IA de Búsqueda Laboral
+# Aplika · Copiloto IA de Búsqueda Laboral
 
 > 🔗 **Colaboración con Git/GitHub** — abajo tienes cómo compartir el proyecto
 > con un amigo y avanzar juntos (no envíes ZIPs).
@@ -151,7 +151,7 @@ uvicorn jobflow.main:app --reload                    # solo API (docs en /docs)
 ## 🗂 Estructura
 
 ```
-JobFlowAI/
+AplikaAI/
 ├── Abrir_JobFlow.bat        # lanzador (doble clic)
 ├── requirements.txt
 ├── jobflow/

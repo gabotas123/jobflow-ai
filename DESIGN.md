@@ -1,6 +1,6 @@
 ---
 version: alpha
-name: JobFlow-AI-design-system
+name: Aplika-AI-design-system
 description: "Un panel de trabajo claro y verde para postular en masa. El lienzo es un verde muy lavado (#f3faf5); cada pantalla abre con una banda verde tinte (#e2f5e8) que sostiene el titulo, y debajo viven paneles blancos planos con hairline (#d9ebdf), sin sombra: la elevacion se reserva para lo que flota (barra masiva, dialogos, menus). El verde bosque (#1b7f45) es el unico acento cromatico: marca, foco, botones primarios y estados de exito; nunca decoracion. Dos tipografias: Outfit para display (titulos, cifras, marca, puntajes) con tracking muy negativo, e Inter para interfaz y texto corrido. Los botones son pildoras (999px) y responden al pulsar. Las cifras mandan: 42px en los indicadores, 26px en el puntaje de compatibilidad, siempre tabulares. El ritmo es de herramienta, no de landing: padding vertical asimetrico (mas abajo que arriba), densidad media, jerarquia por peso y color antes que por cajas, y cero tarjetas dentro de tarjetas. Toda accion irreversible (postular, enviar respuestas, borrar perfil) se anuncia con su numero exacto antes de ejecutarse."
 ---
 
@@ -186,9 +186,9 @@ components:
 
 ---
 
-# JobFlow AI — DESIGN.md
+# Aplika — DESIGN.md
 
-Documento de diseno para agentes. Cualquier pantalla nueva de JobFlow se construye con estos tokens y estas reglas. Formato inspirado en [DESIGN.md de Google Stitch](https://stitch.withgoogle.com/docs/design-md/overview/); referencias comparables en `../referencias-diseno/awesome-design-md/design-md/`.
+Documento de diseno para agentes. Cualquier pantalla nueva de Aplika se construye con estos tokens y estas reglas. Formato inspirado en [DESIGN.md de Google Stitch](https://stitch.withgoogle.com/docs/design-md/overview/); referencias comparables en `../referencias-diseno/awesome-design-md/design-md/`.
 
 ## Que es este producto
 

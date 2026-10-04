@@ -5,6 +5,23 @@ Todos los cambios del proyecto, con fecha y commit. El historial vivo está en:
 
 ---
 
+## 10-04 · Aplika: nombre nuevo, cursos para cerrar brechas y correcciones del examen
+- **El producto se llama Aplika** (antes JobFlow AI) en la portada, la aplicación y los mensajes.
+  No cambian el paquete `jobflow`, las variables `JOBFLOW_*`, la cookie ni `Abrir_JobFlow.bat`.
+- **Cómo cerrar las brechas** (`jobflow/learning.py`): cada herramienta que falta en un aviso trae
+  dónde aprenderla (Microsoft Learn si es de Microsoft, Coursera, edX y YouTube, como búsquedas:
+  no se inventa ningún curso). Lo que no se arregla estudiando —años de experiencia, nivel,
+  carrera— se dice sin rodeos y con una salida realista.
+- **«Para ti» se actualiza solo de verdad**: el planificador estaba apagado por defecto; ahora el
+  lanzador local lo enciende. Si el perfil está sin confirmar, no deja error: espera.
+- **Aviso cuando la confirmación caduca**: «Para ti» explica que el perfil cambió y lleva a
+  confirmarlo, en lugar de fallar con un mensaje suelto.
+- **Pausa de 90 s entre búsquedas a pedido**, para que los portales no bloqueen la IP.
+- **Página 404 propia** en vez de un JSON, y los archivos de la interfaz se revalidan con ETag
+  en lugar de descargarse enteros en cada visita.
+
+---
+
 ## 10-04 · Portada pública
 - **`web/landing.html`**: página de presentación con la estructura de una portada de producto:
   cabecera fija, portada con la app a la vista, portales compatibles, producto en dos pestañas

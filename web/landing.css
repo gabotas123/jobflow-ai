@@ -1,4 +1,4 @@
-/* Portada pública de JobFlow. Mismos tokens que la app (ver DESIGN.md). */
+/* Portada pública de Aplika. Mismos tokens que la app (ver DESIGN.md). */
 :root{font-family:Inter,system-ui,sans-serif;--display:Outfit,Inter,system-ui,sans-serif;color-scheme:light;--bg:#f3faf5;--surface:#fff;--text:#14281d;--muted:#557062;--line:#d9ebdf;--primary:#1b7f45;--primary-hover:#166b3a;--on-primary:#fff;--tint:#e2f5e8;--accent:#b8ebc8;--success:#1b6b3f;--success-bg:#dcf3e4;--warning:#855209;--warning-bg:#fff2d6;--deep:#0f2a1c;--deep-2:#1f5034;--on-deep:#eaf6ee;--on-deep-dim:#a9c9b5}
 @media(prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#0f1a14;--surface:#16241c;--text:#e8f5ec;--muted:#a6c2b1;--line:#2a3d32;--primary:#7fdc9f;--primary-hover:#a4ebbd;--on-primary:#0c2616;--tint:#1f3a2a;--accent:#2d5a3f;--success:#98ddb4;--success-bg:#193b2a;--warning:#f2cb87;--warning-bg:#403521;--deep:#0a130e;--deep-2:#173524}}
 *{box-sizing:border-box}[hidden]{display:none!important}html{scroll-behavior:smooth;scroll-padding-top:84px}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
