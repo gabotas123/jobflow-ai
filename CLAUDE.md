@@ -70,14 +70,46 @@ python -m venv .venv
 - Las pruebas del ejecutor usan un portal simulado con `context.route(...)` (servir HTML con `charset=utf-8`).
 - En Windows el repo tiene `.bat` con CRLF (`.gitattributes`); no los conviertas a LF.
 
-## Límites conocidos y pendientes
+## Estado y pendientes (al 04-10-2026)
 
-- Selectores de postulación probados contra un portal simulado; **falta validarlos con cuentas reales** (revisar las capturas de las primeras postulaciones y ajustar `APPLY_TEXT`, `CONFIRM_TEXT`).
+**Hecho y en `main`:** portada pública, feed diario «Para ti», postulación masiva, cursos para cerrar
+brechas (`learning.py`), revisión de headhunter ATS (`headhunter.py`), pantalla de sueldos
+(`salaries.py`), lector de CV para plantillas a dos columnas, 120 pruebas. Detalle en `CHANGELOG.md`.
+
+**Pendiente, por orden sugerido:**
+1. **«Nunca dejar un campo en blanco» al postular** (pedido del dueño, sin resolver): hoy una pregunta
+   sin evidencia en el CV detiene el envío. Propuesta acordada a medias: rellenar todo como propuesta
+   y enviar con un clic de aprobación. No relajar la regla 1 sin decisión explícita.
+2. **CV de Kimi Yi Kudaka** (prueba en curso; es un CV de un tercero, no versionarlo): faltan sus
+   respuestas — si maneja Word y PowerPoint, cifras para sus logros, si las fechas solapadas son
+   correctas, y pasar cada empleo de una frase a 3–5 logros. Puestos: prácticas legales y de comercio exterior.
+3. **Recuperación de contraseña**: no existe; quien la olvida pierde la cuenta (no se pide correo).
+4. **Duplicados entre portales en el feed**: la misma vacante puede salir dos veces.
+5. **Copiloto conversacional** y **redacción con LLM** del headhunter: escritos pero sin modelo
+   configurado (`LLM_PROVIDER`, `LLM_API_KEY`); la redacción no se probó contra un modelo real.
+6. **Nombre «Aplika»**: falta verificar dominio (`aplika.pe`, `.com`) e INDECOPI.
+7. **Gmail**: la confirmación por correo no se pudo verificar (el Gmail conectado no es el del perfil).
+
+## Límites conocidos
+
+- **Depende del marcado de los portales** (búsqueda, postulación y sueldos de Computrabajo): si
+  cambian su página, esa parte falla hasta ajustarla. Es el mayor riesgo del producto.
+- Automatizar postulaciones probablemente incumple los términos de uso de los portales; revisar
+  antes de crecer. Con usuarios reales aplica la ley peruana de protección de datos personales.
 - Bumeran bloquea la IP de Render: su búsqueda/lectura solo funciona en local.
-- SQLite en Render no persiste entre despliegues (plan gratuito).
-- Render no tiene contraseña configurada: activar `JOBFLOW_REQUIRE_AUTH=true` y `JOBFLOW_ACCESS_PASSWORD` en Environment.
-- HiringRoom/Pandapé: solo lectura de avisos; sin postulación automática. Gmail/Calendar necesitan credenciales de Google Cloud (`CAMBIOS_V05.md`).
-- Monetización discutida: planes por 30 días y licencias para universidades (idea, sin implementar).
+- Render es solo demostración: SQLite no persiste entre despliegues y no tiene contraseña
+  configurada (`JOBFLOW_REQUIRE_AUTH=true` y `JOBFLOW_ACCESS_PASSWORD` en Environment).
+- La postulación automática solo funciona en la computadora del usuario, con la ventana abierta.
+- HiringRoom/Pandapé: solo lectura de avisos. Gmail/Calendar necesitan credenciales de Google Cloud.
+- Los CV subidos antes del 04-10 guardan las fechas sin mes: volver a subirlos o corregirlas a mano.
+
+## Cuidados al trabajar aquí
+
+- **Nunca `git add -A`**: en esta carpeta viven otras cosas que no son del repositorio (`livora/`,
+  una copia vieja `JobFlowAI/`). Añadir los archivos por nombre. El repositorio es **público**.
+- El dueño suele tener la app abierta mientras se trabaja: reiniciar el servidor le corta la sesión.
+- Para probar con datos reales, crear una cuenta temporal y borrarla al terminar (perfil por la
+  API, luego la fila de `usuarios`); nunca tocar los perfiles 1 y 2, que son los reales.
 
 ## Datos que nunca se suben ni se comparten
 
