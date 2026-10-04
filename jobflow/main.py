@@ -1,4 +1,4 @@
-"""JobFlow AI - API FastAPI + aplicacion web (multi-perfil).
+"""Aplika - API FastAPI + aplicacion web (multi-perfil).
 
 Endpoints principales:
     GET  /                        -> SPA (dashboard, perfiles, analisis, autofill, postulaciones, correo)
@@ -19,9 +19,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.exception_handlers import http_exception_handler
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
@@ -29,6 +31,7 @@ from . import models
 from .adapters import ADAPTERS, get_adapter
 from .cv_generator import build_docx, optimize_profile, render_cv_html, render_latex, tailored_profile, CV_VARIANTS
 from .job_search import PLATFORMS, search_all
+from .learning import plan as learning_plan
 from .autofill import (
     TEST_FORM_SCHEMA, approve, create_draft, detect_form, generate_answers,
     map_fields, submit,
@@ -77,16 +80,22 @@ async def lifespan(app: FastAPI):
             worker.join(timeout=2)
 
 
-app = FastAPI(title="JobFlow AI", version="0.6.1", lifespan=lifespan)
+app = FastAPI(title="Aplika", version="0.6.1", lifespan=lifespan)
 from .accounts import current_user, delete_profile, ensure_profile_slots, router as accounts_router
 from .career import application as owned_application, router as career_router, require_ready
 from .google_integration import router as google_router
 from .portal_accounts import router as portals_router
+from .feed import router as feed_router
+from .headhunter import router as headhunter_router
+from .salaries import router as salaries_router
 app.include_router(accounts_router)
 app.include_router(career_router)
 app.include_router(google_router)
 app.include_router(portals_router)
-# Every /api route needs a JobFlow session; HTTP Basic remains an optional outer guard.
+app.include_router(feed_router)
+app.include_router(headhunter_router)
+app.include_router(salaries_router)
+# Every /api route needs a Aplika session; HTTP Basic remains an optional outer guard.
 from .security import AccessMiddleware
 app.add_middleware(AccessMiddleware)
 app.mount("/assets", StaticFiles(directory=str(WEB_DIR)), name="assets")
@@ -126,9 +135,42 @@ def _candidate(db: Session, profile_id: Optional[int] = None):
 # --------------------------------------------------------------------------- #
 #  Web
 # --------------------------------------------------------------------------- #
+NOT_FOUND_HTML = """<!doctype html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Página no encontrada · Aplika</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f3faf5;color:#14281d;
+font-family:system-ui,sans-serif;text-align:center;padding:24px}h1{font-size:34px;letter-spacing:-1px;margin:0 0 10px}
+p{color:#557062;margin:0 0 24px}a{display:inline-block;margin:4px;padding:12px 22px;border-radius:999px;
+background:#1b7f45;color:#fff;text-decoration:none;font-weight:600}a+a{background:#fff;color:#14281d;border:1px solid #d9ebdf}
+</style></head><body><main><h1>Esta página no existe</h1><p>Puede que el enlace esté mal escrito o que la página se haya movido.</p>
+<a href="/">Ir al inicio</a><a href="/app">Abrir la aplicación</a></main></body></html>"""
+
+
+@app.exception_handler(StarletteHTTPException)
+async def friendly_not_found(request: Request, exc: StarletteHTTPException):
+    """Una direccion mal escrita muestra una pagina con salida, no un JSON suelto."""
+    if exc.status_code == 404 and not request.url.path.startswith(("/api/", "/assets/")):
+        return HTMLResponse(NOT_FOUND_HTML, status_code=404)
+    return await http_exception_handler(request, exc)
+
+
 @app.get("/", include_in_schema=False)
-def index():
+def index(request: Request):
+    """Con sesión iniciada, la aplicación; sin sesión, la portada pública."""
+    from .accounts import COOKIE, session_user_id
+    signed_in = session_user_id(request.cookies.get(COOKIE, ""))
+    return FileResponse(str(WEB_DIR / ("index.html" if signed_in else "landing.html")))
+
+
+@app.get("/app", include_in_schema=False)
+def app_shell():
+    """La aplicación siempre: desde la portada se llega aquí para entrar o crear la cuenta."""
     return FileResponse(str(WEB_DIR / "index.html"))
+
+
+@app.get("/inicio", include_in_schema=False)
+def landing():
+    """La portada siempre, también con sesión iniciada (para enseñarla o compartirla)."""
+    return FileResponse(str(WEB_DIR / "landing.html"))
 
 
 # --------------------------------------------------------------------------- #
@@ -621,6 +663,7 @@ def api_applications(profile_id: Optional[int] = None, db: Session = Depends(get
             shown_status = "intento_no_confirmado"
         out.append({
             "detalle": detail.details if detail else {},
+            "aprendizaje": learning_plan(((detail.details if detail else {}) or {}).get("analisis") or {}),
             "auditoria": [{"accion": e.action, "datos": e.payload, "fecha": e.created.isoformat()} for e in events],
             "id": p.id, "estado": shown_status,
             "fecha": p.fecha_envio.isoformat() if p.fecha_envio else None,

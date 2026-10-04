@@ -180,7 +180,7 @@ def render_cv_html(profile: dict) -> str:
  <h2>Habilidades</h2><p class="skills">{skills or '—'}</p>
  <h2>Idiomas</h2><p class="langs">{langs or '—'}</p>
  {('<h2>Proyectos</h2><ul>' + proyectos + '</ul>') if proyectos else ''}
- <p style="font-size:11px;color:#9aa3bd;margin-top:26px">Generado por JobFlow AI · Estructura ATS de una columna · sin datos inventados</p>
+ <p style="font-size:11px;color:#9aa3bd;margin-top:26px">Generado por Aplika · Estructura ATS de una columna · sin datos inventados</p>
 </div></body></html>"""
 
 
@@ -285,7 +285,7 @@ def render_latex(profile: dict) -> str:
         body.append(r"\end{itemize}")
 
     body.append(r"\vspace{6pt}")
-    body.append(r"{\footnotesize\color{gray}Generado por JobFlow AI - estructura ATS de una columna, sin datos inventados.}")
+    body.append(r"{\footnotesize\color{gray}Generado por Aplika - estructura ATS de una columna, sin datos inventados.}")
     body.append(r"\end{document}")
     return "\n".join(body)
 

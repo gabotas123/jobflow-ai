@@ -65,6 +65,12 @@ def relative_date(label: str):
 # --------------------------------------------------------------------------- #
 #  Lectores por portal
 # --------------------------------------------------------------------------- #
+def _monthly_pay(card: str):
+    """Sueldo mensual que publica la tarjeta del aviso («S/. 2.500,00 (Mensual)»); None si no lo indica."""
+    m = re.search(r"S/\.?\s*([\d.]+)(?:,\d+)?\s*\(Mensual\)", _text(card))
+    return int(m.group(1).replace(".", "")) if m and m.group(1).replace(".", "").isdigit() else None
+
+
 def parse_computrabajo(page: str) -> List[dict]:
     out = []
     for card in re.findall(r'<article[^>]*class="[^"]*box_offer[^"]*"[^>]*>(.*?)</article>', page, re.S):
@@ -81,6 +87,7 @@ def parse_computrabajo(page: str) -> List[dict]:
             "ubicacion": _text(paragraphs[-1]) if paragraphs else "",
             "fecha_publicacion": relative_date(_text(when.group(1))) if when else None,
             "url": urllib.parse.urljoin("https://pe.computrabajo.com", link.group(1)),
+            "sueldo_publicado": _monthly_pay(card),
         })
     return out
 

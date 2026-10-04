@@ -74,7 +74,7 @@ def status(pid:int,db:Session=Depends(get_db)):
 def connect(pid:int,service:str,db:Session=Depends(get_db)):
     profile_row(db,pid)
     if service not in SCOPES:raise HTTPException(404,'Servicio desconocido')
-    if not configured():raise HTTPException(503,'Faltan las credenciales OAuth de JobFlow en el servidor. Consulta la guía de despliegue.')
+    if not configured():raise HTTPException(503,'Faltan las credenciales OAuth de Aplika en el servidor. Consulta la guía de despliegue.')
     cipher()
     redirect=os.environ['GOOGLE_REDIRECT_URI']
     if not redirect.startswith(('https://','http://localhost:')):raise HTTPException(503,'La URL de retorno de Google debe utilizar HTTPS.')
@@ -89,7 +89,7 @@ def connect(pid:int,service:str,db:Session=Depends(get_db)):
 @router.get('/callback')
 def callback(request:Request,code:str='',state:str='',error:str='',db:Session=Depends(get_db)):
     cookie=request.cookies.get('jobflow_oauth','')
-    if not state or not cookie or not secrets.compare_digest(state,cookie):raise HTTPException(400,'Autorización inválida. Vuelve a conectar Google desde JobFlow.')
+    if not state or not cookie or not secrets.compare_digest(state,cookie):raise HTTPException(400,'Autorización inválida. Vuelve a conectar Google desde Aplika.')
     h=hashlib.sha256(state.encode()).hexdigest();s=db.get(OAuthState,h)
     if not s or s.expires<time.time():raise HTTPException(400,'Autorización vencida. Inténtalo de nuevo.')
     pid,service=s.profile_id,s.service
@@ -117,7 +117,7 @@ def disconnect(pid:int,service:str,db:Session=Depends(get_db)):
     if c:db.delete(c)
     p=prefs(db,pid);flag={'gmail_send':'digest_enabled','gmail_read':'gmail_sync_enabled','calendar':'calendar_auto'}.get(service)
     if flag:p.data={**p.data,flag:False}
-    db.commit();return {'disconnected':True,'note':'Permiso local retirado. Puedes revocar el acceso de JobFlow desde tu cuenta Google.'}
+    db.commit();return {'disconnected':True,'note':'Permiso local retirado. Puedes revocar el acceso de Aplika desde tu cuenta Google.'}
 
 def google_request(db,pid,service,method,path,payload=None,params=None):
     c=connection(db,pid,service)
@@ -155,7 +155,7 @@ def sync_event(db,e):
                     result=google_request(db,e.profile_id,'calendar','PATCH','calendar/v3/calendars/primary/events/'+gid,payload,{'sendUpdates':'none'})
                 else:raise
         e.google_id=result['id'];e.sync_status='synced';db.commit()
-    except (HTTPException,KeyError):e.sync_status='pendiente';db.commit();raise HTTPException(502,'Evento guardado en JobFlow; la sincronización con Google sigue pendiente.')
+    except (HTTPException,KeyError):e.sync_status='pendiente';db.commit();raise HTTPException(502,'Evento guardado en Aplika; la sincronización con Google sigue pendiente.')
     return {'id':e.id,'status':e.sync_status}
 @router.post('/events/{eid}/sync')
 def event_sync(eid:str,db:Session=Depends(get_db)):
@@ -174,7 +174,7 @@ def plain_parts(payload):
 
 def sync_gmail(db,pid):
     c=connection(db,pid,'gmail_read')
-    listing=google_request(db,pid,'gmail_read','GET','gmail/v1/users/me/messages',params={'q':'newer_than:14d -subject:"JobFlow · Resumen" {entrevista postulación postulacion hiringroom pandape reclutamiento cuestionario}','maxResults':50})
+    listing=google_request(db,pid,'gmail_read','GET','gmail/v1/users/me/messages',params={'q':'newer_than:14d -subject:"Aplika · Resumen" {entrevista postulación postulacion hiringroom pandape reclutamiento cuestionario}','maxResults':50})
     count=0
     for message in listing.get('messages',[]):
         key=hashlib.sha256(f'{pid}|{c.email}|{message["id"]}'.encode()).hexdigest()
@@ -201,7 +201,7 @@ def send_digest(db,pid):
     delivery=Delivery(key=key,status='intento_no_confirmado',detail={});db.add(delivery)
     try:db.commit()
     except IntegrityError:db.rollback();return {'status':'en_proceso','duplicate':True}
-    msg=EmailMessage();msg['To']=c.email;msg['Subject']='JobFlow · Resumen '+summary['date']
+    msg=EmailMessage();msg['To']=c.email;msg['Subject']='Aplika · Resumen '+summary['date']
     counts=summary['counts']
     lines=[f"Postulaciones confirmadas hoy: {counts['confirmed']}",f"Preparadas hoy: {counts['prepared']}",f"Pendientes de revisión: {counts['pending']}",'','Actividad:']
     lines += [f"• {i['company']} — {i['title']}: {i['status']}" for i in summary['activity']]

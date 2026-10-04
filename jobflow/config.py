@@ -1,4 +1,4 @@
-"""Configuracion central de JobFlow AI."""
+"""Configuracion central de Aplika."""
 import os
 from dataclasses import dataclass
 from pathlib import Path

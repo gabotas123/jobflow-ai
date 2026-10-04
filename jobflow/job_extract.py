@@ -1,7 +1,7 @@
 """Extraccion de avisos laborales desde su enlace publico.
 
 Convierte un anuncio de Bumeran, Computrabajo, LinkedIn u otro portal con datos
-estructurados (schema.org JobPosting) en los campos que usa JobFlow para
+estructurados (schema.org JobPosting) en los campos que usa Aplika para
 evaluar la vacante. Solo se leen paginas publicas: nunca se usa la sesion del
 candidato. Lo que no aparece en el anuncio queda vacio, nunca se supone.
 """

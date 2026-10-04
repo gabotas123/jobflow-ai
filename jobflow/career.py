@@ -178,7 +178,7 @@ def download_cv(vid:int,format:Literal['latex','docx']='latex',db:Session=Depend
     application(db,v.application_id)
     content=iter([render_latex(v.snapshot['cv']).encode()]) if format=='latex' else build_docx(v.snapshot['cv'])
     ext='tex' if format=='latex' else 'docx'
-    return StreamingResponse(content,media_type='application/octet-stream',headers={'Content-Disposition':f'attachment; filename="JobFlow_CV_{vid}.{ext}"'})
+    return StreamingResponse(content,media_type='application/octet-stream',headers={'Content-Disposition':f'attachment; filename="Aplika_CV_{vid}.{ext}"'})
 
 class ContactInput(BaseModel):
     name:str=Field(min_length=2,max_length=200)
@@ -288,7 +288,7 @@ def event_ics(eid:str,db:Session=Depends(get_db)):
     d=e.data
     escape=lambda s:str(s).replace('\\','\\\\').replace('\r','').replace('\n','\\n').replace(';','\\;').replace(',','\\,')
     stamp=lambda s:datetime.fromisoformat(s).astimezone(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
-    lines=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//JobFlow//Agenda//ES','BEGIN:VEVENT',f'UID:{e.id}@jobflow','DTSTAMP:'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ'),'DTSTART:'+stamp(d['start']),'DTEND:'+stamp(d['end']),'SUMMARY:'+escape(d['title']),'DESCRIPTION:'+escape(d['source']),'LOCATION:'+escape(d['location']),'STATUS:'+('CONFIRMED' if d['confirmed'] else 'TENTATIVE'),'END:VEVENT','END:VCALENDAR']
+    lines=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Aplika//Agenda//ES','BEGIN:VEVENT',f'UID:{e.id}@jobflow','DTSTAMP:'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ'),'DTSTART:'+stamp(d['start']),'DTEND:'+stamp(d['end']),'SUMMARY:'+escape(d['title']),'DESCRIPTION:'+escape(d['source']),'LOCATION:'+escape(d['location']),'STATUS:'+('CONFIRMED' if d['confirmed'] else 'TENTATIVE'),'END:VEVENT','END:VCALENDAR']
     folded=[]
     for line in lines:
         part=''
@@ -296,7 +296,7 @@ def event_ics(eid:str,db:Session=Depends(get_db)):
             if len((part+char).encode())>73:folded.append(part);part=' '
             part+=char
         folded.append(part)
-    return Response('\r\n'.join(folded)+'\r\n',media_type='text/calendar',headers={'Content-Disposition':'attachment; filename="JobFlow-evento.ics"'})
+    return Response('\r\n'.join(folded)+'\r\n',media_type='text/calendar',headers={'Content-Disposition':'attachment; filename="Aplika-evento.ics"'})
 
 def daily_summary(db,pid,day=None):
     p=prefs(db,pid);tz=ZoneInfo(p.data.get('timezone','America/Lima'));day=day or datetime.now(tz).date()

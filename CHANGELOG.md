@@ -5,6 +5,137 @@ Todos los cambios del proyecto, con fecha y commit. El historial vivo está en:
 
 ---
 
+## 10-04 · Prueba con un CV de plantilla a dos columnas (estudiante que busca prácticas)
+- **El lector entiende los CV de plantilla**: cabecera «Cargo | Empresa», descripción en párrafo y
+  la fecha al final. En esos PDF el texto sale por columnas y los empleos quedaban repartidos
+  (tres acababan dentro de «Habilidades»). Ahora se reconocen por su forma en todo el documento y
+  se ordenan del más reciente al más antiguo.
+- **El nombre** se elige por coincidencia con el nombre del archivo y, si no, por la línea que
+  parece un nombre; antes se tomaba el primer cargo.
+- **Habilidades una por línea** y «Excel, nivel intermedio» ya no crea una habilidad llamada «Nivel».
+- **Idiomas sin inventar**: fuera de la sección «Idiomas» un idioma solo cuenta si trae su nivel.
+  Antes, estudiar en un colegio «Peruano Japonés» registraba japonés.
+- **La compatibilidad ya no es solo de finanzas**: se añaden áreas legal, logística, comercio
+  exterior, ventas, atención al cliente, recursos humanos, marketing, sistemas, contabilidad y
+  administración.
+- **En prácticas cuenta la carrera**: para los niveles de practicante, lo que se estudia vale como
+  encaje con el puesto; de asistente en adelante sigue contando solo lo trabajado.
+- **Prácticas preprofesionales y profesionales separadas**: unas son para estudiantes y otras para
+  egresados, así que quien elige unas ya no ve las otras.
+- **El auditor ATS mira la función del puesto**, no el nivel («practicante»), la empresa
+  («/ DHL Express») ni el distrito («, Miraflores»).
+
+---
+
+## 10-04 · Sueldos: referencia para tu expectativa salarial
+- **Pantalla «Sueldos»** (`jobflow/salaries.py`): para el puesto objetivo muestra el promedio del
+  mercado, el rango habitual y cuántos datos lo respaldan; lo que pagan las empresas que más
+  contratan ese puesto; los avisos vigentes que publican su sueldo, con enlace; y puestos parecidos.
+- **Dónde cae tu expectativa**: la compara con el promedio y el rango. Solo compara; no recomienda
+  una cifra.
+- **Fuentes reales y citadas**: la página de salarios de Computrabajo Perú (estimación del propio
+  portal, últimos 12 meses) y los avisos de hoy. Si el puesto no tiene datos, se dice. Los
+  promedios se guardan en memoria 6 horas para no repetir la consulta.
+- El lector de avisos de Computrabajo ahora conserva el sueldo mensual publicado.
+
+---
+
+## 10-04 · Revisión de headhunter: auditoría ATS del CV frente al aviso
+- **`jobflow/headhunter.py`**: revisión estricta con el criterio de una headhunter senior. Ocho
+  criterios con peso y evidencia (puesto del aviso, palabras clave, años exigidos, fechas con mes,
+  logros con cifras, verbos de acción, contacto, extensión, relleno), veredicto en tres niveles
+  y las tres correcciones que más suben el puntaje. Los años exigidos son excluyentes: ningún
+  CV bien redactado los compensa.
+- **Pregunta en vez de inventar**: los términos del aviso que faltan y los logros sin cifra se
+  devuelven como preguntas a la candidata. Nada se añade al CV por cuenta propia.
+- **Redacción asistida opcional**: con un modelo configurado (`LLM_PROVIDER`, `LLM_API_KEY`)
+  propone cómo redactar cada logro. Cada propuesta se valida contra el CV y se descarta si trae
+  una cifra o una herramienta que no estaba. Sin modelo, la auditoría funciona igual.
+- En la pestaña «Mi CV» de cada candidatura: botón «Revisar con criterio ATS».
+- **El lector de CV conserva el mes** («Ene. 2023» en vez de «2023»): sin él no se podía
+  calcular la antigüedad, ni aquí ni en las respuestas de postulación.
+
+---
+
+## 10-04 · Aplika: nombre nuevo, cursos para cerrar brechas y correcciones del examen
+- **El producto se llama Aplika** (antes JobFlow AI) en la portada, la aplicación y los mensajes.
+  No cambian el paquete `jobflow`, las variables `JOBFLOW_*`, la cookie ni `Abrir_JobFlow.bat`.
+- **Cómo cerrar las brechas** (`jobflow/learning.py`): cada herramienta que falta en un aviso trae
+  dónde aprenderla (Microsoft Learn si es de Microsoft, Coursera, edX y YouTube, como búsquedas:
+  no se inventa ningún curso). Lo que no se arregla estudiando —años de experiencia, nivel,
+  carrera— se dice sin rodeos y con una salida realista.
+- **«Para ti» se actualiza solo de verdad**: el planificador estaba apagado por defecto; ahora el
+  lanzador local lo enciende. Si el perfil está sin confirmar, no deja error: espera.
+- **Aviso cuando la confirmación caduca**: «Para ti» explica que el perfil cambió y lleva a
+  confirmarlo, en lugar de fallar con un mensaje suelto.
+- **Pausa de 90 s entre búsquedas a pedido**, para que los portales no bloqueen la IP.
+- **Página 404 propia** en vez de un JSON, y los archivos de la interfaz se revalidan con ETag
+  en lugar de descargarse enteros en cada visita.
+
+---
+
+## 10-04 · Portada pública
+- **`web/landing.html`**: página de presentación con la estructura de una portada de producto:
+  cabecera fija, portada con la app a la vista, portales compatibles, producto en dos pestañas
+  («Encuentra» y «Postula», cuatro funciones cada una), conexiones, calculadora de tiempo
+  ahorrado, cifras, las tres reglas del producto, misión, preguntas por tema, cierre y pie.
+- **Rutas**: `/` muestra la portada a quien no tiene sesión y la aplicación a quien sí;
+  `/app` abre siempre la aplicación; `/inicio` muestra siempre la portada.
+- **Sin testimonios ni logos de clientes**: esas dos franjas se cubren con lo que sí es cierto
+  (portales compatibles y reglas que el producto no rompe). Las cifras son medidas o límites
+  reales del sistema.
+- Icono de pestaña para la portada y la aplicación.
+
+---
+
+## 10-01 · Mejoras estéticas tras recorrer la app como usuario nuevo
+- **Pantalla de acceso dividida**: panel verde con la propuesta de valor (qué hace JobFlow y la
+  regla de no inventar) junto al formulario; en celular se apila. La primera visita abre en
+  «Crear cuenta» en vez de «Iniciar sesión».
+- **«Hoy»**: el primer indicador es «Nuevos para ti», destacado y enlazado al feed, en lugar de
+  tres ceros. El botón principal lleva a «Para ti».
+- **Textos en mayúsculas legibles**: títulos, empresas y nombres que llegan gritando
+  («ANALISTA DE FACTURACION Y COBRANZAS») se muestran en formato normal, sin tocar siglas
+  (S.A.C., E.I.R.L., SAP). Solo afecta a la presentación; los datos no cambian.
+- **Subir el CV**: zona para arrastrar o elegir el archivo, con nombre y tamaño al cargarlo,
+  en lugar del selector nativo que se cortaba.
+- **Tarjetas de postulaciones** con el mismo lenguaje que el feed: puntaje en píldora, estado
+  junto a la empresa y botones alineados abajo.
+
+---
+
+## 09-16 · «Para ti»: feed diario de empleos del Perú
+- **Feed diario** (`jobflow/feed.py`): JobFlow recorre solo tus puestos objetivo en Bumeran,
+  Computrabajo y LinkedIn, puntúa cada aviso, descarta lo incompatible y guarda lo nuevo. No
+  repite lo que ya viste ni lo que ya postulaste. El planificador lo actualiza cada 20 horas.
+- **Tarjeta con puntaje y brechas**: compatibilidad sobre 100, «Cumples 7 de 9 criterios» y la
+  lista de lo que te falta declarar, para decidir en un vistazo.
+- **Adaptar mi CV** en un clic desde el aviso: crea la candidatura, genera la versión adaptada y
+  abre la pestaña del CV (`#application/{id}/cv`, ahora enlazable).
+- **Referidos**: enlaces de búsqueda de personas y un mensaje redactado para pedir referencia.
+  JobFlow no lee ni guarda datos de terceros: solo abre la búsqueda y escribe el borrador.
+- **Postulación masiva desde el feed**: la barra de selección ahora funciona en cualquier
+  pantalla que liste vacantes (`data-mass-bar`), con la misma cola y los mismos límites diarios.
+
+---
+
+## 09-16 · Sistema de diseño y revisión de interfaz
+- **`DESIGN.md`** en la raíz: paleta verde, tipografía, espaciados, componentes y reglas de
+  producto (cifra antes del verbo, nada se envía sin verse, estados con evidencia). Cualquier
+  agente que toque la interfaz lo lee primero. Formato DESIGN.md (Google Stitch).
+- **Skills de diseño** (`npx skills add Leonxlnx/taste-skill`) en `.agents/skills/`: 13 skills de
+  dirección de arte, `image-to-code`, `redesign-existing-projects`, `high-end-visual-design`.
+- **Comando `/web-interface-guidelines`**: revisa archivos de interfaz contra las guías de
+  Vercel Labs (accesibilidad, foco, formularios, animación, tipografía, rendimiento, i18n).
+- **Correcciones de la primera revisión**: la fuente Inter se carga con `preconnect` en el HTML
+  en vez de `@import` (bloqueaba el render); la barra de avance de la cola es un
+  `role="progressbar"` con valor y texto, animada con `transform` y respetando
+  `prefers-reduced-motion`; el contador de selección masiva y los estados de la cola se anuncian
+  con `aria-live`; cifras con `tabular-nums`; `content-visibility` en tarjetas de aviso y filas de
+  cola; `cursor: not-allowed` en botones deshabilitados y `aria-busy` mientras cargan.
+
+---
+
 ## 09-14 · Postulación masiva y pruebas reales en Bumeran y Computrabajo
 - **Postulación masiva**: en Oportunidades marcas vacantes (o todas sobre una compatibilidad
   mínima) y «Postular a N vacantes». JobFlow lee cada aviso, descarta las incompatibles y las

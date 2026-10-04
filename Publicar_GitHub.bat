@@ -4,7 +4,7 @@ cd /d "%~dp0"
 set "GH=C:\Program Files\GitHub CLI\gh.exe"
 
 echo ============================================================
-echo   JobFlow AI - Publicar en GitHub (un solo clic)
+echo   Aplika - Publicar en GitHub (un solo clic)
 echo ============================================================
 echo.
 "%GH%" auth status >nul 2>&1
@@ -15,7 +15,7 @@ if errorlevel 1 (
 )
 
 echo [2/2] Creando repositorio PRIVADO y subiendo el codigo...
-"%GH%" repo create jobflow-ai --private --source . --push --description "JobFlow AI - Copiloto IA de busqueda laboral (Innova ULIMA)"
+"%GH%" repo create jobflow-ai --private --source . --push --description "Aplika - Copiloto IA de busqueda laboral (Innova ULIMA)"
 
 echo.
 echo ============================================================

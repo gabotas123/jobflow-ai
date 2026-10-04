@@ -52,9 +52,10 @@ LINKEDIN_RE = re.compile(r"(?:https?://)?(?:[a-z]{2,3}\.)?linkedin\.com/[^\s|)\]
 DNI_RE = re.compile(r"\bDNI\s*[:#]?\s*\d{6,10}\b", re.I)
 
 _MONTHS = "(?:ene|feb|mar|abr|may|jun|jul|ago|set|sep|oct|nov|dic|enero|febrero|marzo|abril|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)"
+# Los grupos 1 y 2 conservan el mes («Ene. 2023»): sin el, no se puede calcular la antiguedad.
 DATES_RE = re.compile(
-    rf"(?:{_MONTHS})\.?\s+((?:19|20)\d{{2}})\s*[-–]\s*"
-    rf"(?:(?:{_MONTHS})\.?\s+((?:19|20)\d{{2}})|(actualidad|presente|actual|hoy))",
+    rf"((?:{_MONTHS})\.?\s+(?:19|20)\d{{2}})\s*[-–]\s*"
+    rf"(?:((?:{_MONTHS})\.?\s+(?:19|20)\d{{2}})|(actualidad|presente|actual|hoy))",
     re.I,
 )
 YEARS_RE = re.compile(r"\b((?:19|20)\d{2})\s*[-–]\s*((?:19|20)\d{2})")
@@ -179,6 +180,17 @@ def _is_marker_bullet(line: str) -> bool:
     return bool(re.match(r"^\s*[•·\-*▪\d.)]\s", line)) or bool(re.match(r"^\s*[-•·*▪]\s*\S", line))
 
 
+def _date_only(line: str) -> bool:
+    """La linea es solo un periodo («Ene. 2023 - Dic. 2024»), sin empresa ni cargo."""
+    rest = DATES_RE.sub(" ", line)
+    rest = YEARS_RE.sub(" ", rest)
+    return rest != line and len(re.sub(r"[^A-Za-zÁÉÍÓÚÑáéíóúñ]", "", rest)) < 4
+
+
+def _has_dates(text: str) -> bool:
+    return bool(DATES_RE.search(text) or YEARS_RE.search(text))
+
+
 def _is_company_or_date(line: str, low: str) -> bool:
     if DATES_RE.search(line) or YEARS_RE.search(line):
         return True
@@ -202,7 +214,8 @@ def _apply_dates(entry: dict) -> None:
     text = entry.get("empresa", "")
     m = DATES_RE.search(text)
     if m:
-        entry["inicio"], entry["fin"] = m.group(1), (m.group(2) or m.group(3) or "Actualidad")
+        entry["inicio"] = " ".join(m.group(1).split())
+        entry["fin"] = " ".join(m.group(2).split()) if m.group(2) else "Actualidad"
         text = text[:m.start()] + " " + text[m.end():]
     else:
         m2 = YEARS_RE.search(text)
@@ -214,8 +227,72 @@ def _apply_dates(entry: dict) -> None:
     if len(parts) >= 2 and norm(parts[-1]).split()[0] in ROLE_WORDS:
         entry["cargo"] = parts[-1]
         text = " - ".join(parts[:-1]) if len(parts) > 2 else parts[0]
+    elif len(parts) >= 2 and not entry["cargo"] and norm(parts[0]).split()[0] in ROLE_WORDS:
+        # orden inverso, igual de comun: «Asistente de Cobranzas - Corporacion Andina SAC»
+        entry["cargo"] = parts[0]
+        text = " - ".join(parts[1:])
     # limpiar residuos ' - ' iniciales
     entry["empresa"] = re.sub(r"^[\s\-]+|[\s\-]+$", "", text)
+    # «Cargo - Empresa» en una sola linea, cuando el CV no trae linea de empresa aparte
+    if not entry["empresa"] and " - " in entry["cargo"]:
+        pieces = [p.strip() for p in re.split(r"\s+-\s+", entry["cargo"]) if p.strip()]
+        if len(pieces) >= 2 and norm(pieces[0]).split()[0] in ROLE_WORDS:
+            entry["cargo"], entry["empresa"] = pieces[0], " - ".join(pieces[1:])
+
+
+def _pipe_blocks(text: str):
+    """CV de plantilla: «Cargo | Empresa», un parrafo y la fecha al final de cada bloque.
+
+    En estos PDF el texto sale por columnas y los empleos quedan repartidos por todo el documento
+    (incluso dentro de «Habilidades»), asi que se buscan por su forma y no por la seccion.
+    Devuelve (experiencias, texto sin esos bloques) o None si el CV no usa este formato.
+    """
+    raw = [l.strip() for l in text.splitlines()]
+    lines, i = [], 0
+    while i < len(raw):                      # la cabecera partida en dos lineas se une
+        if raw[i].endswith("|") and i + 1 < len(raw) and raw[i + 1]:
+            lines.append(raw[i] + " " + raw[i + 1]); i += 2
+        else:
+            lines.append(raw[i]); i += 1
+
+    def candidate(line: str) -> bool:
+        return (" | " in line and not line.isupper() and not re.search(r"\([^)]*\|[^)]*\)", line)
+                and not EMAIL_RE.search(line) and not _date_only(line))
+
+    marks = {n for n, l in enumerate(lines) if candidate(l)}
+    found = []
+    for n in sorted(marks):
+        for j in range(n + 1, min(n + 9, len(lines))):
+            if j in marks or _header_of(lines[j]):
+                break
+            if _date_only(lines[j]):
+                found.append((n, j)); break
+    if len(found) < 2:
+        return None
+
+    used, entries, closed = set(), [], {-1}
+    for start, end in found:
+        header = lines[start]
+        # el cargo puede venir partido: «Especialista en Traduccion y Comunicacion» / «Internacional | G&L»
+        prev = lines[start - 1] if start else ""
+        before = lines[start - 2] if start > 1 else ""
+        if (prev and "|" not in prev and not _date_only(prev) and not _header_of(prev)
+                and prev[-1] not in ".,;:" and len(prev.split()) <= 8
+                and (start - 2 in closed or _header_of(before) or not before)):
+            header = prev + " " + header
+            used.add(start - 1)
+        cargo, empresa = (x.strip() for x in header.split(" | ", 1))
+        body = " ".join(l for l in lines[start + 1:end] if l)
+        entry = _new_entry()
+        entry["cargo"], entry["empresa"] = cargo, empresa + " " + lines[end]
+        entry["bullets"] = [b.strip() for b in re.split(r"(?<=[.!?])\s+", body) if b.strip()]
+        _apply_dates(entry)
+        entry["cargo"] = cargo                 # _apply_dates no debe reinterpretar la cabecera
+        entries.append(entry)
+        used.update(range(start, end + 1))
+        closed.add(end)
+    rest = "\n".join(l for n, l in enumerate(lines) if n not in used)
+    return entries, rest
 
 
 def _parse_experience(sec_text: str) -> List[dict]:
@@ -231,9 +308,16 @@ def _parse_experience(sec_text: str) -> List[dict]:
                 cur = _new_entry(); entries.append(cur)
             cur["bullets"].append(re.sub(r"^[•·\-*▪\d.)\s]+", "", line).strip())
         elif _is_company_or_date(line, low):
-            cur = _new_entry(); cur["empresa"] = line; entries.append(cur)
+            # Una linea que solo trae el periodo pertenece al empleo que se esta leyendo:
+            # abrir una entrada nueva desplazaria cargo, fechas y logros al siguiente empleo.
+            if _date_only(line) and cur is not None and not _has_dates(cur["empresa"]):
+                cur["empresa"] = (cur["empresa"] + " " + line).strip()
+            else:
+                cur = _new_entry(); cur["empresa"] = line; entries.append(cur)
         elif _is_role(line, low):
-            if cur is not None:
+            # Solo completa el bloque en curso si aun se esta armando su encabezado;
+            # si ya tiene cargo o ya recogio logros, este cargo abre el siguiente empleo.
+            if cur is not None and not cur["cargo"] and not cur["bullets"]:
                 cur["cargo"] = line
             else:
                 cur = _new_entry(); cur["cargo"] = line; entries.append(cur)
@@ -277,7 +361,7 @@ def _merge_logros(experiencia: List[dict], logros_text: str) -> None:
 # --------------------------------------------------------------------------- #
 #  Habilidades / idiomas ('Skill - Nivel X' o listas)
 # --------------------------------------------------------------------------- #
-def _parse_named_lines(section_text: str) -> dict:
+def _parse_named_lines(section_text: str, plain: bool = False) -> dict:
     out: dict = {}
     for raw in section_text.splitlines():
         line = raw.strip().strip("-•·*").strip()
@@ -297,8 +381,14 @@ def _parse_named_lines(section_text: str) -> dict:
             continue
         parts = [p.strip() for p in re.split(r"[,\|/]", line) if len(p.strip()) > 2]
         if len(parts) > 1:
+            last = None
             for p in parts:
                 pk = norm(p)
+                only_level = re.fullmatch(r"(?:nivel\s+)?(basico|intermedio|avanzado|nativo|fluido)", pk)
+                if only_level and last:           # «Microsoft Excel, nivel intermedio»
+                    out[last] = (out[last][0], only_level.group(1))
+                    continue
+                last = pk
                 mkl = re.search(r"(basico|intermedio|avanzado|nativo|fluido)\s*$", pk)
                 if mkl:
                     lvl = mkl.group(1)
@@ -306,12 +396,16 @@ def _parse_named_lines(section_text: str) -> dict:
                     out[norm(p)] = (p, lvl)
                 else:
                     out[pk] = (p, "")
+                last = norm(p) if mkl else pk
+        elif plain and len(line.split()) <= 7 and not re.search(r"[:@\d|()]", line) and not line.isupper():
+            out[norm(line)] = (line, "")        # una habilidad por linea, sin nivel
     return out
 
 
 def parse_skills(sections: dict, text_low: str) -> List[tuple]:
-    hab = sections.get("habilidades", "") + "\n" + sections.get("cursos", "")
-    items = _parse_named_lines(hab)
+    # Solo en «Habilidades» vale una habilidad por linea; en «Cursos» esas lineas son titulos partidos.
+    items = _parse_named_lines(sections.get("habilidades", ""), plain=True)
+    items.update(_parse_named_lines(sections.get("cursos", "")))
     for s in KNOWN_SKILLS:
         pat = re.escape(s)
         if s in text_low or re.search(rf"\b{pat}\b", text_low):
@@ -322,7 +416,7 @@ def parse_skills(sections: dict, text_low: str) -> List[tuple]:
     for key, (name, level) in items.items():
         low_key = norm(key)
         norm_name = norm(name)
-        if norm_name in seen:
+        if norm_name in seen or norm_name.startswith(("curso ", "diplomatura", "diplomado")):
             continue
         seen.add(norm_name)
         if not level:
@@ -343,10 +437,15 @@ def parse_languages(sections: dict, text_low: str) -> dict:
                 out[canon] = level or ""
                 break
     if not out:
+        # Sin seccion de idiomas solo cuenta el idioma que viene con su nivel («Inglés avanzado»).
+        # La palabra suelta no basta: «Colegio Peruano Japonés» no significa que hable japonés.
+        listed = norm(idiomas)
         for lname, canon in LANG_NAMES.items():
-            if norm(lname) in text_low:
-                m = re.search(re.escape(norm(lname)) + r"[^\n]{0,30}(basico|intermedio|avanzado|nativo)", text_low)
-                out[canon] = m.group(1).capitalize() if m else ""
+            m = re.search(rf"\b{re.escape(norm(lname))}\b[^\n]{{0,30}}?\b(basico|intermedio|avanzado|nativo)\b", text_low)
+            if m:
+                out[canon] = m.group(1).capitalize()
+            elif re.search(rf"\b{re.escape(norm(lname))}\b", listed):
+                out.setdefault(canon, "")      # nombrado en la seccion «Idiomas», sin nivel: no se supone ninguno
     return out
 
 
@@ -360,6 +459,10 @@ _HEADER_LOW_WORDS = ("experiencia", "educacion", "habilidades", "idiomas", "proy
 
 def parse_cv(text: str, filename: str = "", nombre_hint: str = "") -> CandidateProfile:
     text = _clean(text or "")
+    full_low = norm(text)                     # las herramientas se buscan en todo el CV, empleos incluidos
+    blocks = _pipe_blocks(text)
+    if blocks:
+        text = blocks[1]                      # el resto del CV se lee sin los empleos ya reconocidos
     sections = _split_sections(text)
     text_low = norm(text)
 
@@ -373,13 +476,25 @@ def parse_cv(text: str, filename: str = "", nombre_hint: str = "") -> CandidateP
     # --- nombre ---
     name = nombre_hint or ""
     if not name:
+        candidates = []
         for line in text.splitlines():
             s = line.strip()
             if 4 <= len(s) <= 60 and re.fullmatch(r"[A-Za-zÁÉÍÓÚÑáéíóúñ .'\-]+", s):
-                low_s = norm(s)
-                if not any(v in low_s for v in _HEADER_LOW_WORDS):
-                    name = s
-                    break
+                if not any(v in norm(s) for v in _HEADER_LOW_WORDS):
+                    candidates.append(s)
+        # a) la linea que mas coincide con el nombre del archivo («CV - Kimi Yi Kudaka 2026.pdf»)
+        tokens = {t for t in re.findall(r"[a-z]{2,}", norm(filename.rsplit(".", 1)[0]))
+                  if t not in ("cv", "curriculum", "vitae", "resume", "hoja", "vida", "copia", "final", "pdf", "docx")}
+        scored = [(len(tokens & set(norm(c).split())), c) for c in candidates]
+        best = max(scored, default=(0, ""))
+        if best[0] >= 2:
+            name = best[1]
+        else:
+            # b) una linea que parezca nombre: de 2 a 5 palabras, todas con mayuscula, y que no sea un cargo
+            proper = [c for c in candidates if 2 <= len(c.split()) <= 5
+                      and all(w[0].isupper() or norm(w) in ("de", "del", "la", "los") for w in c.split())
+                      and norm(c).split()[0] not in ROLE_WORDS]
+            name = (proper or candidates or [""])[0]
 
     # --- headline (saltar la linea del nombre y headers de seccion) ---
     headline = ""
@@ -391,6 +506,9 @@ def parse_cv(text: str, filename: str = "", nombre_hint: str = "") -> CandidateP
         if any(v in low_s for v in ("experiencia", "educacion", "habilidades", "idiomas",
                                     "proyectos", "resumen", "perfil", "contacto", "logros")):
             continue
+        # La linea de contacto suele llevar «|»: no es un titular profesional.
+        if EMAIL_RE.search(s) or PHONE_RE.search(s) or re.search(r"(https?://|linkedin\.com|www\.)", low_s):
+            continue
         if s.isupper() or "|" in s:
             headline = s
             break
@@ -399,14 +517,23 @@ def parse_cv(text: str, filename: str = "", nombre_hint: str = "") -> CandidateP
     exp_sec = sections.get("experiencia", "")
     # A missing experience section must not turn projects into employment.
     experiencia = _parse_experience(exp_sec)
+    orphan_summary = ""
+    if blocks:
+        # Lo que queda en «Experiencia» tras sacar los bloques es el parrafo de presentacion.
+        orphan_summary = " ".join(l.strip() for l in exp_sec.splitlines()
+                                  if len(l.strip()) > 50 or l.strip().endswith("."))
+        # En dos columnas los empleos salen en el orden de la pagina; se ordenan del mas reciente al mas antiguo.
+        from .cv_answers import parse_month
+        experiencia = sorted(blocks[0], key=lambda e: (parse_month(e["fin"]) or (0, 0), parse_month(e["inicio"]) or (0, 0)),
+                             reverse=True)
     # Standalone achievements require attribution to an employer by the candidate.
 
     # --- habilidades / idiomas / educacion / proyectos ---
-    skills = parse_skills(sections, text_low)
+    skills = parse_skills(sections, full_low)
     languages = parse_languages(sections, text_low)
     educacion = [l.strip() for l in sections.get("educacion", "").splitlines() if len(l.strip()) > 4]
     proyectos = [l.strip() for l in sections.get("proyectos", "").splitlines() if len(l.strip()) > 4]
-    summary = " ".join(sections.get("resumen", "").split())
+    summary = " ".join(sections.get("resumen", "").split()) or " ".join(orphan_summary.split())
 
     # --- ubicacion (sin contar la linea del nombre) ---
     location = ""
@@ -414,7 +541,10 @@ def parse_cv(text: str, filename: str = "", nombre_hint: str = "") -> CandidateP
     loc_low = norm(loc_text)
     for c in ["san isidro", "miraflores", "surco", "magdalena", "san miguel", "barranco",
               "santiago de surco", "la molina", "san borja", "monterrico", "cercado de lima",
-              "trujillo", "arequipa", "callao"]:
+              "los olivos", "san juan de lurigancho", "ate", "comas", "chorrillos", "jesus maria",
+              "pueblo libre", "lince", "breña", "rimac", "independencia", "villa el salvador",
+              "trujillo", "arequipa", "chiclayo", "piura", "cusco", "huancayo", "tacna", "iquitos",
+              "callao", "lima"]:
         if c in loc_low:
             location = c.title()
             break

@@ -1,7 +1,7 @@
 """Cuentas de portales y postulacion automatica con evidencia.
 
-Conexion: JobFlow abre una ventana real del portal; el candidato inicia sesion
-personalmente (JobFlow nunca ve ni guarda su contrasena, y el candidato resuelve
+Conexion: Aplika abre una ventana real del portal; el candidato inicia sesion
+personalmente (Aplika nunca ve ni guarda su contrasena, y el candidato resuelve
 cualquier verificacion). Solo se guarda la sesion del navegador, cifrada.
 
 Postulacion: un unico trabajador procesa la cola de candidaturas que el
@@ -59,14 +59,14 @@ PORTALS = {
         "login_markers": ("/login", "/uas/login", "/authwall", "/checkpoint", "/signup"),
         # LinkedIn's terms forbid automation: connecting requires accepting the account risk.
         "riesgo": ("Las condiciones de uso de LinkedIn prohíben automatizar postulaciones. LinkedIn puede pedir "
-                   "verificaciones, limitar o suspender tu cuenta. JobFlow solo usa «Solicitud sencilla», con un "
+                   "verificaciones, limitar o suspender tu cuenta. Aplika solo usa «Solicitud sencilla», con un "
                    "límite diario bajo y pausas, pero el riesgo existe y es tuyo."),
     },
 }
 UNSUPPORTED = {
     "indeed": "Indeed bloquea el acceso automatizado: abre el aviso y postula personalmente.",
-    "hiringroom": "Cada empresa arma su propio formulario en HiringRoom: JobFlow lee el aviso y prepara tus respuestas; tú postulas.",
-    "pandape": "Cada empresa arma su propio formulario en Pandapé: JobFlow lee el aviso y prepara tus respuestas; tú postulas.",
+    "hiringroom": "Cada empresa arma su propio formulario en HiringRoom: Aplika lee el aviso y prepara tus respuestas; tú postulas.",
+    "pandape": "Cada empresa arma su propio formulario en Pandapé: Aplika lee el aviso y prepara tus respuestas; tú postulas.",
 }
 # Portals shown as «solo preparación» (no login, no automatic applications). `url` only when a public job board exists.
 PREPARED_PORTALS = {
@@ -154,19 +154,19 @@ def cipher() -> Fernet:
     try:
         return Fernet(key.encode())
     except ValueError:
-        raise HTTPException(503, "La clave de cifrado de JobFlow no es válida.")
+        raise HTTPException(503, "La clave de cifrado de Aplika no es válida.")
 
 
 def browser_status() -> tuple[bool, str]:
     if os.getenv("RENDER") or os.getenv("JOBFLOW_LOCAL_BROWSER", "true").lower() == "false":
-        return False, ("Conectar cuentas y postular automáticamente requiere abrir JobFlow en tu computadora "
+        return False, ("Conectar cuentas y postular automáticamente requiere abrir Aplika en tu computadora "
                        "(Abrir_JobFlow.bat): el servidor web no tiene una ventana donde iniciar sesión.")
     try:
         import playwright.sync_api  # noqa: F401
     except ImportError:
-        return False, "Faltan componentes de JobFlow. Ejecuta Instalar_Todo.bat."
+        return False, "Faltan componentes de Aplika. Ejecuta Instalar_Todo.bat."
     if not find_browser():
-        return False, "Instala Google Chrome o Microsoft Edge: JobFlow usa tu navegador para iniciar sesión y postular."
+        return False, "Instala Google Chrome o Microsoft Edge: Aplika usa tu navegador para iniciar sesión y postular."
     return True, ""
 
 
@@ -197,7 +197,7 @@ def on_login(url: str, portal: str) -> bool:
 
 
 # --------------------------------------------------------------------------- #
-#  Navegador real del candidato (Chrome/Edge) con un perfil propio de JobFlow
+#  Navegador real del candidato (Chrome/Edge) con un perfil propio de Aplika
 # --------------------------------------------------------------------------- #
 # Los portales bloquean el Chromium de automatizacion y el modo oculto (Cloudflare
 # responde "you have been blocked" o 403). Por eso se abre el Chrome/Edge instalado
@@ -250,7 +250,7 @@ class RealBrowser:
         deadline = time.time() + 25
         while time.time() < deadline:
             if self.proc.poll() is not None:
-                raise RuntimeError("Ya hay una ventana de JobFlow abierta con tu perfil de navegador. Ciérrala e inténtalo otra vez.")
+                raise RuntimeError("Ya hay una ventana de Aplika abierta con tu perfil de navegador. Ciérrala e inténtalo otra vez.")
             try:
                 self.browser = playwright.chromium.connect_over_cdp(f"http://127.0.0.1:{port}", timeout=5000)
                 break
@@ -341,7 +341,7 @@ def save_session(pid, portal, state: dict) -> None:
 
 def login_worker(pid: int, portal: str) -> None:
     key, cfg = (pid, portal), PORTALS[portal]
-    waiting = f"Inicia sesión en la ventana de {cfg['nombre']} y luego pulsa «Ya inicié sesión». JobFlow no lee tu contraseña."
+    waiting = f"Inicia sesión en la ventana de {cfg['nombre']} y luego pulsa «Ya inicié sesión». Aplika no lee tu contraseña."
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
@@ -447,7 +447,7 @@ def plan_fields(fields, profile, vacancy_title, approved: dict, cv_path: str | N
                 value, source = combined["value"], combined["source"]
         direct = m["canonical"] in DIRECT_FACTS and not (m["canonical"] == "disponibilidad" and not START_Q.search(norm(label).lstrip("¿ ")))
         if not value and m["canonical"] == "disponibilidad" and not direct:
-            reason = "Pregunta sobre horario, lugar o modalidad: respóndela tú y JobFlow la reutilizará."
+            reason = "Pregunta sobre horario, lugar o modalidad: respóndela tú y Aplika la reutilizará."
         if not value and direct and a["answer"] and not a["necesita_input"]:
             value, source = a["answer"], a.get("fuente") or "Perfil confirmado"
         if not value:
@@ -835,7 +835,7 @@ def apply_on_page(page, portal: str, url: str, planner, max_steps: int = 8, trac
         plan = planner(fields)
         pending = [s for s in plan if s["action"] == "pending"]
         if pending:
-            # Answers JobFlow could deduce travel with the pending ones, so you only complete what is missing.
+            # Answers Aplika could deduce travel with the pending ones, so you only complete what is missing.
             planned = [s for s in plan if s["action"] in ("fill", "select")]
             if trace.get("evidence"):
                 return applied(pending, planned=planned)
@@ -900,7 +900,7 @@ def recover_interrupted():
     try:
         for run in db.query(AutoApplyRun).filter_by(status="ejecutando"):
             run.status = "intento_no_confirmado"
-            run.detail = {**(run.detail or {}), "message": "JobFlow se cerró durante la postulación. Revisa el portal."}
+            run.detail = {**(run.detail or {}), "message": "Aplika se cerró durante la postulación. Revisa el portal."}
             db.add(AuditEvent(application_id=run.application_id, action="intento_no_confirmado",
                               payload={"run_id": run.id, "motivo": "ejecucion_interrumpida"}))
         db.commit()
@@ -913,7 +913,7 @@ _worker_file = None
 
 
 def acquire_worker_lock() -> bool:
-    """Solo un proceso de JobFlow puede ejecutar la cola, aunque haya varios abiertos."""
+    """Solo un proceso de Aplika puede ejecutar la cola, aunque haya varios abiertos."""
     global _worker_file
     if _worker_file:
         return True
@@ -938,7 +938,7 @@ def acquire_worker_lock() -> bool:
 def worker_loop():
     delay = float(os.getenv("JOBFLOW_APPLY_DELAY_SECONDS", "45"))
     while not acquire_worker_lock():
-        # Another JobFlow window owns the queue; take over only if it closes.
+        # Another Aplika window owns the queue; take over only if it closes.
         if STOP.wait(15):
             return
     while not STOP.is_set():
@@ -958,7 +958,7 @@ def worker_loop():
 
 
 def run_in_browser(pid: int, fn):
-    """Abre el Chrome/Edge del candidato con su perfil de JobFlow (sesiones incluidas)."""
+    """Abre el Chrome/Edge del candidato con su perfil de Aplika (sesiones incluidas)."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         real = RealBrowser(p, pid)
@@ -1055,7 +1055,7 @@ def finish(db, run, outcome: dict):
     def questions_form():
         """Las preguntas sin dato quedan en «Respuestas»; las deducidas del CV llegan ya propuestas."""
         proposed = [{"field_id": s["key"], "label": s["label"], "answer": s["value"], "fuente": s.get("source", ""),
-                     "necesita_input": False, "bloqueada": False, "nota": "Propuesta de JobFlow: revísala antes de aprobar."}
+                     "necesita_input": False, "bloqueada": False, "nota": "Propuesta de Aplika: revísala antes de aprobar."}
                     for s in planned]
         form = FormularioResuelto(profile_id=run.profile_id, postulacion_id=app.id, plataforma=run.portal,
                                   campos_detectados=planned + questions, mapeo_semantico=[],
@@ -1079,7 +1079,7 @@ def finish(db, run, outcome: dict):
         if not already:
             db.add(AuditEvent(application_id=app.id, action="postulada", payload={
                 **payload, "tipo_evidencia": "mensaje_portal", "evidencia": outcome.get("evidence", ""),
-                "fuente": "Confirmación detectada por JobFlow en el portal" + (" (postulación previa)" if outcome.get("previa") else ""),
+                "fuente": "Confirmación detectada por Aplika en el portal" + (" (postulación previa)" if outcome.get("previa") else ""),
                 "cv_version_id": outcome.get("cv_version_id")}))
         if questions:
             db.add(AuditEvent(application_id=app.id, action="preguntas_pendientes", payload=payload))
@@ -1258,11 +1258,11 @@ def disconnect_portal(pid: int, portal: str, db: Session = Depends(get_db)):
         db.delete(acc)
         db.commit()
     LOGINS.pop((pid, portal), None)
-    note = "Cuenta desconectada de JobFlow."
+    note = "Cuenta desconectada de Aplika."
     if not db.query(PortalAccount).filter_by(profile_id=pid).count():
         # No connected portal remains: delete the browser profile and its cookies.
         shutil.rmtree(Path(settings.data_dir).resolve() / "navegador" / f"perfil_{pid}", ignore_errors=True)
-        note += " Se borró la sesión guardada en el navegador de JobFlow."
+        note += " Se borró la sesión guardada en el navegador de Aplika."
     else:
         note += " Para cerrar la sesión por completo, sal de tu cuenta desde la web del portal."
     return {"disconnected": True, "note": note}
@@ -1475,7 +1475,7 @@ def grouped_questions(pid: int, db: Session = Depends(get_db)):
         vacancy = db.get(Vacante, app.vacante_id)
         for answer in form.respuestas_generadas or []:
             if str(answer.get("answer", "")).strip() and not answer.get("necesita_input"):
-                continue  # proposed by JobFlow from your CV
+                continue  # proposed by Aplika from your CV
             key = norm(answer.get("label", ""))
             if key not in groups:
                 # Suggest what you already approved elsewhere, or what your confirmed CV can answer now.
