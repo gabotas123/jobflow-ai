@@ -98,6 +98,19 @@ ROLE_NOUNS = ((r"practicantes?|practicas|pre[- ]?profesionales?|trainee|pasantes
               (r"jef(?:e|a|es|atura)", 7), (r"gerentes?|director(?:a|es)?|head", 8))
 
 
+def level_fits(chosen: int, job_levels) -> bool:
+    """El aviso encaja si es del nivel elegido o de uno contiguo, salvo en prácticas.
+
+    Las preprofesionales son para estudiantes y las profesionales para egresados: quien eligió
+    unas no puede postular a las otras. Un egresado sí puede mirar hacia «asistente».
+    """
+    if chosen == LEVELS["practicante_preprofesional"][0]:
+        return chosen in job_levels
+    if chosen == LEVELS["practicante_profesional"][0]:
+        return bool(set(job_levels) & {chosen, chosen + 1})
+    return any(abs(n - chosen) <= 1 for n in job_levels)
+
+
 def title_levels(title):
     """Levels a job title can belong to (by its first role word), or None when it does not say."""
     t = norm(title)
@@ -142,7 +155,7 @@ def evaluate(profile, job, level=None):
         if not known:
             unknown.append(name)
     job_levels = title_levels(title)
-    level_ok = bool(job_levels) and any(abs(n - chosen) <= 1 for n in job_levels)
+    level_ok = bool(job_levels) and level_fits(chosen, job_levels)
     if job_levels and not level_ok:
         label = next(v[1] for v in LEVELS.values() if v[0] == min(job_levels))
         blocks.append(f"Nivel del aviso ({label}) distinto del nivel que elegiste ({LEVELS[level][1]})")
@@ -151,10 +164,15 @@ def evaluate(profile, job, level=None):
     if job.get("vigente") is False:
         blocks.append("Vacante vencida")
     wanted = {d for d, words in DOMAINS.items() if any(w in title for w in words)}
-    available = {d for d, words in DOMAINS.items() if any(w in experience for w in words)}
+    # En prácticas todavía no hay trayectoria en el área: la carrera que se estudia es la evidencia
+    # de encaje. De asistente en adelante solo cuenta lo trabajado.
+    intern = chosen <= LEVELS["practicante_profesional"][0]
+    evidence = experience + " " + norm(" ".join(profile.educacion)) if intern else experience
+    available = {d for d, words in DOMAINS.items() if any(w in evidence for w in words)}
     ratio = len(wanted & available) / len(wanted) if wanted else 0
     add("Coincidencia funcional", 30, round(30 * ratio),
-        "Funciones del título contrastadas con experiencia declarada", bool(wanted))
+        "Funciones del título contrastadas con tu carrera y tu experiencia" if intern
+        else "Funciones del título contrastadas con experiencia declarada", bool(wanted))
     years = job.get("anos_obligatorios")
     if years is None:
         match = re.search(r"(?:minim[oa](?: de)?|al menos|indispensable(?:s)?[: ]*|obligatori[oa](?:s)?[: ]*)\s*(\d+)\s*anos", desc)

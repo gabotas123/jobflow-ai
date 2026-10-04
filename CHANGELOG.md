@@ -18,6 +18,10 @@ Todos los cambios del proyecto, con fecha y commit. El historial vivo está en:
 - **La compatibilidad ya no es solo de finanzas**: se añaden áreas legal, logística, comercio
   exterior, ventas, atención al cliente, recursos humanos, marketing, sistemas, contabilidad y
   administración.
+- **En prácticas cuenta la carrera**: para los niveles de practicante, lo que se estudia vale como
+  encaje con el puesto; de asistente en adelante sigue contando solo lo trabajado.
+- **Prácticas preprofesionales y profesionales separadas**: unas son para estudiantes y otras para
+  egresados, así que quien elige unas ya no ve las otras.
 - **El auditor ATS mira la función del puesto**, no el nivel («practicante»), la empresa
   («/ DHL Express») ni el distrito («, Miraflores»).
 
